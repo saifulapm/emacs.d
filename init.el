@@ -100,12 +100,12 @@
     "Check if a font with FONT-NAME is available."
     (find-font (font-spec :name font-name)))
   (defun setup-fonts ()
-    (cond ((font-installed-p "Maple Mono")
-           (set-face-attribute 'default nil :font "Maple Mono" :height 120 :width 'normal :weight 'normal))
-          ((font-installed-p "JetBrains Mono")
-           (set-face-attribute 'default nil :font "JetBrains Mono" :height 120 :width 'normal :weight 'normal)))
-    (when (font-installed-p "DejaVu Sans")
-      (set-face-attribute 'variable-pitch nil :font "DejaVu Sans")))
+    (let ((mono (cond ((font-installed-p "Maple Mono") "Maple Mono")
+                      ((font-installed-p "JetBrains Mono") "JetBrains Mono"))))
+      (when mono
+        (set-face-attribute 'default nil :font mono :height 120 :width 'normal :weight 'normal)
+        (set-face-attribute 'fixed-pitch nil :font mono)
+        (set-face-attribute 'variable-pitch nil :font mono))))
   (provide 'font))
 
 (use-package cus-edit
@@ -416,11 +416,15 @@ are defining or executing a macro."
   ;; (eshell-prompt-function 'eshell-prompt)
   (eshell-banner-message ""))
 
-(use-package esh-module
-  :after eshell
-  :custom
-  (eshell-modules-list
-   (remove 'eshell-term eshell-modules-list)))
+(use-package em-term
+  :defer t
+  :config
+  ;; Full-screen TUIs need a real terminal/PTY. Eshell routes commands
+  ;; listed here through `eshell-exec-visual'; `ghostel-eshell-visual-
+  ;; command-mode' then renders them in a ghostel buffer. (`tmux' is
+  ;; already in the default `eshell-visual-commands'.)
+  (dolist (cmd '("btop" "tmux" "lazygit" "gitui" "claude" "pi" "yazi"))
+    (add-to-list 'eshell-visual-commands cmd)))
 
 (use-package dired
   :bind ( :map dired-mode-map
@@ -676,7 +680,37 @@ are defining or executing a macro."
 	:preface
   (setq elfeed-feeds
         '(("https://nullprogram.com/feed/" blog emacs)
-          ("https://nedroid.com/feed/" webcomic)))
+          ("https://nedroid.com/feed/" webcomic)
+          ;; YouTube channels (RSS via channel_id)
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCbRP3c757lWg9M-U7TyEkXA" youtube webdev) ; t3dotgg
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCswG6FSbgZjbWtdf_hMLaow" youtube typescript ai) ; mattpocockuk
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCUbtdbJRpaXiUI_IlBOvPpA" youtube politics bangla) ; PinakiBhattacharya
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCelfWQr9sXVMTvBzviPGlFw" youtube ai) ; AILABS-393
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UC0uTPqBCFIpZxlz_Lv1tk_g" youtube emacs) ; protesilaos
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCwXdFgeE9KYzlDdR7TG9cMw" youtube flutter) ; flutterdev
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCLKPca3kwwd-B59HNr-_lvA" youtube ai) ; aiDotEngineer
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCJvXIbdkzLzLNQNaTL6EgbQ" youtube entertainment bangla) ; KothaHokOhetuk
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCXUPKJO5MZQN11PqgIvyuvQ" youtube ai) ; AndrejKarpathy
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCsBjURrPoezykLs9EqgamOA" youtube webdev) ; Fireship
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCYeiozh-4QwuC1sjgCmB92w" youtube devops) ; devopstoolbox
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCbh_g91w0T6OYp40xFrtnhA" youtube emacs) ; karthink
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UC1HNvqTpK24NjOh6VsHxdfw" youtube emacs) ; xenodium
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UC1hOCRBN2mnXgN5reSoO3pQ" youtube react) ; ReactConfOfficial
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UClURnTgQiQpldGhtD4Fc7JQ" youtube politics) ; EliasHossain
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCbzoLT8wqhI3iOAz1Nq0pvw" youtube webdev) ; antfu
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCH7Ulw-HEr62_SUzCC9K8oQ" youtube webdev) ; andrew-burgess
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCFM3gG5IHfogarxlKcIHCAg" youtube webdev bangla) ; LearnwithSumit
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UC1irENajwVYATt9hf5rfWRQ" youtube webdev) ; rich_harris
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCLLVlcmcCP4CUe7xSqVEnxw" youtube webdev) ; ryansolid
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UC2Xd-TjJByJyK2w1zNwY0zQ" youtube webdev) ; beyondfireship
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UC-2Y8dQb0S6DtpxNgAKoJKA" youtube gaming) ; PlayStation
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCO_hYZF2gb_CyG5sA7ArlGg" youtube php) ; nunomaduro
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCb-d2dCbEt_T-d3qf3oMICw" youtube bangla) ; iamkhalidfarhan
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCeiAKuJGZrIjYvaq0nMwbJg" youtube entertainment hindi) ; FilmiIndian
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCPWqbr91cfbtLHZrHM5GItg" youtube entertainment hindi) ; ABHIKAREVIEW
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCyNJTXvvD-1gWzjC59Oc_Mg" youtube entertainment bangla) ; PlabonWorld
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCXzR5V9OMvhfoZPPv8g-VCw" youtube entertainment bangla) ; Achirar_goppo_shoppo
+          ("https://www.youtube.com/feeds/videos.xml?channel_id=UCjqJ_NnTvCJFAXmLWntHgFg" youtube entertainment bangla))) ; faporbaz_fun
 	:config
 	(setq-default elfeed-db-directory (expand-file-name "elfeed" user-cache-directory)
 								elfeed-save-multiple-enclosures-without-asking t
@@ -685,3 +719,56 @@ are defining or executing a macro."
 								elfeed-search-filter "#50 +unread "
 								elfeed-search-date-format '("%Y-%m-%d" 10 :left) ;;'("%b %d" 6 :left)
 								elfeed-search-title-min-width 45))
+
+(use-package elfeed-tube
+  :ensure t
+  :after elfeed
+  :demand t
+  :config
+  ;; (setq elfeed-tube-auto-save-p nil) ; default value
+  ;; (setq elfeed-tube-auto-fetch-p t)  ; default value
+  (elfeed-tube-setup)
+  :bind ( :map elfeed-show-mode-map
+          ("F" . elfeed-tube-fetch)
+          ([remap save-buffer] . elfeed-tube-save)
+          :map elfeed-search-mode-map
+          ("F" . elfeed-tube-fetch)
+          ([remap save-buffer] . elfeed-tube-save)))
+
+;; Emacs mpv library, needed for "live" transcript tracking in elfeed-tube-mpv
+(use-package mpv
+  :ensure t
+  :defer t)
+
+(use-package elfeed-tube-mpv
+  :ensure t
+  :after elfeed-tube
+  :bind ( :map elfeed-show-mode-map
+          ("C-c C-f" . elfeed-tube-mpv-follow-mode)
+          ("C-c C-w" . elfeed-tube-mpv-where)))
+
+(use-package yeetube
+  :ensure t
+  :bind ("C-c y" . #'yeetube))
+
+(use-package alert
+  :ensure t
+  :defer t
+  :custom
+  (alert-default-style (if (eq system-type 'darwin) 'osx-notifier 'notifications)))
+
+(use-package spinner
+  :ensure t
+  :defer t)
+
+(use-package ghostel
+  :ensure t
+  :bind ("C-c t" . ghostel)
+  :custom
+  (ghostel-spinner-type 'half-circle))
+
+(use-package ghostel-eshell
+  :hook (eshell-load . ghostel-eshell-visual-command-mode))
+
+(use-package ghostel-compile
+  :hook (after-init . ghostel-compile-global-mode))
