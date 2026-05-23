@@ -1,5 +1,5 @@
 ;;; early-init.el --- Description -*- lexical-binding: t; -*-
-(setq gc-cons-threshold (* 2 gc-cons-threshold))
+(setq gc-cons-threshold (* 16 1024 1024))
 
 (let ((original-gc-cons-threshold gc-cons-threshold))
   (setq
@@ -7,6 +7,7 @@
     inhibit-compacting-font-caches t
     message-log-max 16384
     package-enable-at-startup nil
+    inhibit-default-init t
 		auto-mode-case-fold nil
     load-prefer-newer noninteractive)
     (add-hook 'emacs-startup-hook
@@ -16,8 +17,7 @@
 (setq-default default-frame-alist '((width . 170)
                                    (height . 52)
                                    (tool-bar-lines . 0)
-																	 (vertical-scroll-bars . nil)
-																	 (vertical-scroll-bars . nil)
+                                   (vertical-scroll-bars . nil)
                                    (bottom-divider-width . 0)
                                    (right-divider-width . 1))
               initial-frame-alist default-frame-alist

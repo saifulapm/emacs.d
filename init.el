@@ -13,6 +13,11 @@
 (use-package exec-path-from-shell
   :ensure t
   :when (memq window-system '(mac ns x))
+  :custom
+  ;; Login shell only — skip the interactive `-i' pass that sources the
+  ;; whole ~/.zshrc on every startup (~1000ms -> ~50ms).
+  (exec-path-from-shell-arguments '("-l"))
+  (exec-path-from-shell-check-startup-files nil)
   :init
   (exec-path-from-shell-initialize))
 
@@ -64,12 +69,14 @@
    load-prefer-newer t
    truncate-lines t
    bidi-paragraph-direction 'left-to-right
+   bidi-inhibit-bpa t
    frame-title-format "Emacs"
    auto-window-vscroll nil
    mouse-highlight t
    hscroll-step 1
    hscroll-margin 1
    scroll-margin 0
+   scroll-conservatively 101
    scroll-preserve-screen-position nil
    frame-resize-pixelwise window-system
    window-resize-pixelwise window-system)
@@ -81,14 +88,30 @@
   (setq
    ring-bell-function 'ignore
    mode-line-percent-position nil
+   redisplay-skip-fontification-on-input t
+   fast-but-imprecise-scrolling t
    enable-recursive-minibuffers t)
   (provide 'defaults))
+
+(use-package jit-lock
+  :custom
+  (jit-lock-defer-time 0))
 
 (use-package window
   :config
   (add-to-list 'display-buffer-alist '("\\*Calendar*" (display-buffer-at-bottom))))
 
+(use-package winner
+  :hook (after-init . winner-mode))
+
+(use-package windmove
+  :bind (("S-<left>"  . windmove-left)
+         ("S-<right>" . windmove-right)
+         ("S-<up>"    . windmove-up)
+         ("S-<down>"  . windmove-down)))
+
 (use-package mouse
+  :hook (after-init . context-menu-mode)
   :bind (("<mode-line> <mouse-2>" . nil)
          ("<mode-line> <mouse-3>" . nil)))
 
@@ -138,6 +161,7 @@
   :custom
   (backup-by-copying t)
   (create-lockfiles nil)
+  (delete-by-moving-to-trash t)
   (backup-directory-alist
    `(("." . ,backup-dir)))
   (auto-save-file-name-transforms
@@ -154,7 +178,21 @@
   :bind ([remap text-scale-pinch] . ignore))
 
 (use-package savehist
-  :hook (after-init . savehist-mode))
+  :hook (after-init . savehist-mode)
+  :custom
+  (history-length 300)
+  (history-delete-duplicates t)
+  (savehist-additional-variables '(kill-ring search-ring regexp-search-ring)))
+
+(use-package recentf
+  :hook (after-init . recentf-mode)
+  :custom
+  (recentf-max-saved-items 300)
+  (recentf-auto-cleanup 'never)
+  (recentf-exclude '("/tmp/" "/ssh:" "\\.cache/" "/elpa/")))
+
+(use-package saveplace
+  :hook (after-init . save-place-mode))
 
 (use-package mule-cmds
   :no-require
@@ -181,6 +219,8 @@
          (after-init . line-number-mode))
   :custom
   (yank-excluded-properties t)
+  (save-interprogram-paste-before-kill t)
+  (mouse-yank-at-point t)
   (blink-matching-delay 0)
   (blink-matching-paren t)
   (copy-region-blink-delay 0)
@@ -212,6 +252,10 @@ are defining or executing a macro."
 (use-package delsel
   :hook (after-init . delete-selection-mode))
 
+(use-package subword
+  :delight subword-mode
+  :hook (after-init . global-subword-mode))
+
 (use-package minibuffer
   :bind ( :map minibuffer-inactive-mode-map
           ("<mouse-1>" . ignore))
@@ -229,6 +273,9 @@ are defining or executing a macro."
           ("C-d" . dired-jump))
   :init
   (setq mode-line-end-spaces nil))
+
+(use-package ibuffer
+  :bind ([remap list-buffers] . ibuffer))
 
 (use-package frame
   :bind (("C-z" . ignore)
@@ -394,21 +441,39 @@ are defining or executing a macro."
   :when (fboundp #'pixel-scroll-precision-mode)
   :hook (after-init . pixel-scroll-precision-mode)
   :custom
-  (scroll-margin 0))
+  (scroll-margin 0)
+  (pixel-scroll-precision-use-momentum nil))
 
 (use-package paren
   :hook (prog-mode . show-paren-mode))
 
+(use-package elec-pair
+  :hook (prog-mode . electric-pair-local-mode))
+
 (use-package vc-hooks
   :defer t
   :custom
-  (vc-follow-symlinks t))
+  (vc-follow-symlinks t)
+  (vc-git-print-log-follow t)
+  (vc-handled-backends '(Git)))
+
+(use-package ediff
+  :defer t
+  :custom
+  (ediff-window-setup-function 'ediff-setup-windows-plain)
+  (ediff-split-window-function 'split-window-horizontally))
 
 (use-package eldoc
   :delight eldoc-mode
   :defer t
   :custom
   (eldoc-echo-area-use-multiline-p nil))
+
+(use-package treesit
+  :custom
+  (treesit-font-lock-level 4)
+  (treesit-enabled-modes t)
+  (treesit-auto-install-grammar 'ask))
 
 (use-package esh-mode
   :custom
@@ -504,6 +569,11 @@ are defining or executing a macro."
   :custom
   (help-window-select t))
 
+(use-package which-key
+  :hook (after-init . which-key-mode)
+  :custom
+  (which-key-idle-delay 0.75))
+
 (use-package doc-view
   :defer t
   :custom
@@ -533,7 +603,14 @@ are defining or executing a macro."
   (jinx-languages "en_US"))
 
 (use-package autorevert
-  :hook (after-init . global-auto-revert-mode))
+  :hook (after-init . global-auto-revert-mode)
+  :custom
+  (global-auto-revert-non-file-buffers t)
+  (auto-revert-verbose nil)
+  (auto-revert-avoid-polling t))
+
+(use-package so-long
+  :hook (after-init . global-so-long-mode))
 
 (use-package outline
   :delight outline-minor-mode
@@ -546,8 +623,20 @@ are defining or executing a macro."
                #'xwidget-webkit-browse-url
              #'eww-browse-url)))
 
+(use-package goto-addr
+  :hook ((prog-mode . goto-address-prog-mode)
+         (text-mode . goto-address-mode)))
+
 (use-package repeat
   :hook (after-init . repeat-mode))
+
+(use-package isearch
+  :custom
+  (isearch-lazy-count t)
+  (isearch-allow-motion t)
+  (isearch-allow-scroll t)
+  (search-whitespace-regexp ".*?")
+  (isearch-wrap-pause 'no-ding))
 
 ;; (use-package page
   ;; I often input C-x C-p instead of C-x p followed by project
@@ -662,6 +751,11 @@ are defining or executing a macro."
   :after corfu
   :config
   (setq completion-at-point-functions '(cape-file)))
+
+(use-package avy
+  :ensure t
+  :bind (("C-:"   . avy-goto-char-timer)
+         ("M-g g" . avy-goto-line)))
 
 (use-package ov
   :ensure t
