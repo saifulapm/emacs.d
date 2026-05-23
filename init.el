@@ -475,6 +475,27 @@ are defining or executing a macro."
   (treesit-enabled-modes t)
   (treesit-auto-install-grammar 'ask))
 
+(use-package eglot
+  :commands (eglot eglot-ensure)
+  :bind ( :map eglot-mode-map
+          ("C-h ." . eldoc))
+  :hook (eglot-managed-mode . my/eglot-eldoc-compose)
+  :preface
+  (defun my/eglot-eldoc-compose ()
+    "Show eglot docs alongside flymake diagnostics in the echo area."
+    (setq eldoc-documentation-strategy 'eldoc-documentation-compose-eagerly))
+  :custom
+  (eglot-autoshutdown t)         ; kill server when last buffer closes
+  (eglot-sync-connect nil)       ; don't block UI while connecting
+  (eglot-extend-to-xref t)       ; xref jumps may leave the project
+  (eglot-events-buffer-config '(:size 0 :format short)) ; silence event log
+  :config
+  ;; Eglot's default PHP entry tries phpactor / felixfbecker — override to
+  ;; use intelephense (installed via `pnpm i -g intelephense'). Pushed to
+  ;; the front of the alist so it wins over the built-in default.
+  (add-to-list 'eglot-server-programs
+               '((php-mode phps-mode php-ts-mode) . ("intelephense" "--stdio"))))
+
 (use-package esh-mode
   :custom
   (eshell-scroll-show-maximum-output nil)
@@ -571,6 +592,7 @@ are defining or executing a macro."
 
 (use-package which-key
   :hook (after-init . which-key-mode)
+  :delight which-key-mode
   :custom
   (which-key-idle-delay 0.75))
 
@@ -631,6 +653,19 @@ are defining or executing a macro."
   :hook (after-init . repeat-mode))
 
 (use-package isearch
+  :bind ( :map isearch-mode-map
+          ;; <backspace> deletes one char from the search string (what
+          ;; every other tool does) instead of Emacs's default "undo
+          ;; last search step".
+          ("<backspace>" . isearch-del-char)
+          ;; <left>/<right> while searching → open the search string in
+          ;; the minibuffer for editing (default exits isearch).
+          ("<left>"  . isearch-edit-string)
+          ("<right>" . isearch-edit-string)
+          :map minibuffer-local-isearch-map
+          ;; In that edit minibuffer, restore normal cursor movement.
+          ("<left>"  . backward-char)
+          ("<right>" . forward-char))
   :custom
   (isearch-lazy-count t)
   (isearch-allow-motion t)
@@ -756,6 +791,59 @@ are defining or executing a macro."
   :ensure t
   :bind (("C-:"   . avy-goto-char-timer)
          ("M-g g" . avy-goto-line)))
+
+(use-package region-bindings
+  :vc ( :url "https://gitlab.com/andreyorst/region-bindings.el.git"
+        :branch "main"
+        :rev :newest)
+  :commands (region-bindings-mode)
+  :preface
+  (defun region-bindings-off ()
+    (region-bindings-mode -1))
+  :hook ((after-init . global-region-bindings-mode)
+         ((elfeed-search-mode magit-mode mu4e-headers-mode)
+          . region-bindings-off)))
+
+(use-package replace
+  :bind ( :map region-bindings-mode-map
+          ("k" . keep-lines)
+          ("f" . flush-lines)))
+
+(use-package phi-search
+  :ensure t
+  :defer t)
+
+(use-package expand-region
+  :ensure t
+  :bind ("C-=" . er/expand-region))
+
+(use-package multiple-cursors
+  :ensure t
+  :bind
+  (("S-<mouse-1>" . mc/add-cursor-on-click)
+   :map region-bindings-mode-map
+   ("n" . mc/mark-next-symbol-like-this)
+   ("N" . mc/mark-next-like-this)
+   ("p" . mc/mark-previous-symbol-like-this)
+   ("P" . mc/mark-previous-like-this)
+   ("a" . mc/mark-all-symbols-like-this)
+   ("A" . mc/mark-all-like-this)
+   ("s" . mc/mark-all-in-region-regexp)
+   ("l" . mc/edit-ends-of-lines)))
+
+(use-package multiple-cursors-core
+  :bind ( :map mc/keymap
+          ("<return>" . nil)
+          ("C-&" . mc/vertical-align-with-space)
+          ("C-#" . mc/insert-numbers)))
+
+(use-package vundo
+  :ensure t
+  :bind ( :map mode-specific-map
+          ("u" . vundo))
+  :custom
+  (vundo-roll-back-on-quit nil)
+  (vundo--window-max-height 10))
 
 (use-package ov
   :ensure t
