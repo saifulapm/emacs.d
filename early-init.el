@@ -18,6 +18,8 @@
                                    (height . 52)
                                    (tool-bar-lines . 0)
                                    (vertical-scroll-bars . nil)
+                                   (left-fringe . 8)
+                                   (right-fringe . 8)
                                    (bottom-divider-width . 0)
                                    (right-divider-width . 1))
               initial-frame-alist default-frame-alist
