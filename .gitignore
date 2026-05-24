@@ -1,0 +1,21 @@
+# Ignore everything
+*
+
+# But keep these files
+!init.el
+!early-init.el
+!.mc-lists.el
+!disabled.el
+
+# Keep transient folder
+!transient/
+transient/*
+!transient/values.el
+
+# Keep scripts folder (clone-reference-configs.sh etc.)
+!scripts/
+!scripts/*
+
+!.claude/
+!.claude/*
+!.gitignore
