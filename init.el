@@ -598,6 +598,12 @@ padding that blends into the background.  Re-runs on theme change."
   :ensure t
   :bind ("C-x g" . magit-status))
 
+(use-package server
+  :commands (server-running-p)
+  :init
+  (unless (server-running-p)
+    (server-start)))
+
 (use-package eldoc
   :delight eldoc-mode
   :defer t
