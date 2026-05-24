@@ -487,8 +487,12 @@ padding that blends into the background.  Re-runs on theme change."
     (pcase appearance
       ('dark (load-theme local-config-dark-theme t))
       ('light (load-theme local-config-light-theme t))))
-  (provide 'mac-os)
   :config
+  ;; `:preface' runs unconditionally even when `:when' is false, so
+  ;; `(provide 'mac-os)' must live in `:config' — otherwise on Linux
+  ;; `(featurep 'mac-os)' is t and `mac-os-color-theme-dark-p' gets
+  ;; called, hitting void `ns-do-applescript' during init.
+  (provide 'mac-os)
   (add-hook 'ns-system-appearance-change-functions 'mac-os-appearance-changed))
 
 (use-package modus-themes
