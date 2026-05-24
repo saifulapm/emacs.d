@@ -141,8 +141,11 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
     ;; `line-spacing' as (above . below) cons (Emacs 31+) splits the 50% so
     ;; text sits vertically centered in each row, matching ghostty exactly.
     ;; A single float (e.g. 0.5) puts all extra space below, gluing text to
-    ;; the top of each line.
-    (setq-default line-spacing '(0.25 . 0.25))
+    ;; the top of each line. On Emacs ≤30 the cons form trips
+    ;; `default-line-height' (wrong-type-argument number-or-marker-p) and
+    ;; breaks vertico's resize math, so fall back to the float there.
+    (setq-default line-spacing
+                  (if (>= emacs-major-version 31) '(0.25 . 0.25) 0.5))
     (let ((mono (cond ((font-installed-p "Maple Mono Ghostty") "Maple Mono Ghostty")
                       ((font-installed-p "Maple Mono") "Maple Mono")
                       ((font-installed-p "JetBrains Mono") "JetBrains Mono"))))
