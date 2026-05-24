@@ -58,6 +58,16 @@
           ((featurep 'mac-os) (mac-os-color-theme-dark-p))
           ((featurep 'dbus) (dbus-color-theme-dark-p))
           (t nil)))
+  (defun memoize (fn)
+    "Return a memoized version of FN.
+FN must be referentially transparent.  Results are cached by `equal' on args."
+    (let ((memo (make-hash-table :test 'equal)))
+      (lambda (&rest args)
+        ;; `memo' is used as a singleton sentinel to detect absent values.
+        (let ((value (gethash args memo memo)))
+          (if (eq value memo)
+              (puthash args (apply fn args) memo)
+            value)))))
   (provide 'functions))
 
 (use-package defaults
@@ -123,13 +133,73 @@
     "Check if a font with FONT-NAME is available."
     (find-font (font-spec :name font-name)))
   (defun setup-fonts ()
-    (let ((mono (cond ((font-installed-p "Maple Mono") "Maple Mono")
+    ;; Mirror ghostty: font-size = 15pt, adjust-cell-height = 50%.
+    ;; Emacs `:height' is 1/10 pt -> 150.
+    ;; `line-spacing' as (above . below) cons (Emacs 31+) splits the 50% so
+    ;; text sits vertically centered in each row, matching ghostty exactly.
+    ;; A single float (e.g. 0.5) puts all extra space below, gluing text to
+    ;; the top of each line.
+    (setq-default line-spacing '(0.25 . 0.25))
+    (let ((mono (cond ((font-installed-p "Maple Mono Ghostty") "Maple Mono Ghostty")
+                      ((font-installed-p "Maple Mono") "Maple Mono")
                       ((font-installed-p "JetBrains Mono") "JetBrains Mono"))))
       (when mono
-        (set-face-attribute 'default nil :font mono :height 120 :width 'normal :weight 'normal)
+        (set-face-attribute 'default nil :font mono :height 150 :width 'normal :weight 'normal)
         (set-face-attribute 'fixed-pitch nil :font mono)
         (set-face-attribute 'variable-pitch nil :font mono))))
   (provide 'font))
+
+(use-package ligature
+  :ensure t
+  :hook (after-init . global-ligature-mode)
+  :config
+  ;; Enable Maple Mono / JetBrains Mono programming ligatures everywhere.
+  ;; This covers the `calt' OpenType feature; the `cv*' and `ss*' character
+  ;; variants and stylistic sets require a HarfBuzz-enabled Emacs build,
+  ;; which this Emacs does not have.
+  ;; Canonical Maple Mono `calt' + `ss09/ss10/ss11' ligature set, sourced from
+  ;; https://github.com/subframe7536/maple-font/blob/variable/source/features/README.md
+  ;; Italic letter-pair ligatures (`ff' `tt' `ll' `al' `cl' …) are deliberately
+  ;; omitted because they would composite parts of identifiers like `cell',
+  ;; `full', `effect' in code.
+  (ligature-set-ligatures
+   't
+   '(;; Arrows
+     "->" "<-" "-->" "<--" "->>" "<<-" ">->" "<-<" "|->" "<-|" "<->" "<-->"
+     "-------" ">--" "--<" "<#--" "<!--->"
+     ;; Equality / comparison
+     "==" "===" "=======" "!=" "!==" "=/=" "=!=" ">=<"
+     "<=" ">=" "<=|" "|=>" "<==" "==>" "=>" "<==>" "=<=>" "=>=" "<=>" ">=>"
+     ":=" "=:" ":=:" "=:="
+     ;; ss09 / ss10 / ss11 — extra ligature packs from your ghostty config
+     "~=" "=~" "!~"
+     "|=" "/=" "?=" "&="
+     ;; Comparison brackets / pipes
+     "|>" "<|" "<|>" "<||" "||>" "<|||" "|||>"
+     "{|" "|}" "[|" "|]" "{{" "}}" "{{--" "{{!--" "--}}"
+     ;; Bit / shift
+     "<<" "<<<" ">>" ">>>"
+     ;; Logic / functional
+     "<*" "*>" "<*>" "<+" "+>" "<+>" "<$" "<$>"
+     ;; Tilde / approx
+     "<~" "~>" "~~" "<~>" "<~~" "~~>" "-~" "~-" "~@" "~~~~~~~"
+     ;; Slashes / comments
+     "//" "///" "/*" "/**" "*/" "</" "/>" "</>" "<>"
+     ;; Plus / dot / question / colon families
+     "++" "+++" "**" "***"
+     ";;" ";;;" ".." "..." ".?" "?." "..<" ".="
+     "::" ":::" "?:" ":?" ":?>" "<:" ":>" ":<" "<:<" ">:>"
+     "??" "???" "&&" "&&&" "||" "!!"
+     ;; Hashes
+     "##" "###" "####" "#####" "######" "#######"
+     "#{" "#[" "#(" "#?" "#!" "#:" "#=" "#_" "#__" "#_(" "]#"
+     ;; Misc
+     "__" "_|_" "--" "---"
+     "\\."
+     ;; Maple Mono's signature: bracketed log-keyword ligatures
+     "[TRACE]" "[DEBUG]" "[INFO]" "[WARN]" "[WARNING]"
+     "[ERROR]" "[EROR]" "[FATAL]"
+     "[TODO]" "[FIXME]" "[NOTE]" "[HACK]" "[MARK]")))
 
 (use-package cus-edit
   :custom
@@ -273,6 +343,65 @@ are defining or executing a macro."
           ("C-d" . dired-jump))
   :init
   (setq mode-line-end-spaces nil))
+
+(use-package mode-line
+  :no-require
+  :preface
+  (defvar mode-line-interactive-position
+    `(line-number-mode
+      (:propertize "%l:%C"
+                   help-echo "mouse-1: Goto line"
+                   mouse-face mode-line-highlight
+                   local-map ,(let ((map (make-sparse-keymap)))
+                                (define-key map [mode-line down-mouse-1] 'goto-line)
+                                map)))
+    "Mode line position with goto-line binding.")
+  (put 'mode-line-interactive-position 'risky-local-variable t)
+  (defvar mode-line-vc
+    '(:eval (when vc-mode
+              ;; `vc-display-status' = `no-backend' strips the backend name but
+              ;; leaves the separator dash; trim it so we read " main" not " -main".
+              (replace-regexp-in-string "\\` ?-" " " vc-mode)))
+    "VC info with the leading separator removed.")
+  (put 'mode-line-vc 'risky-local-variable t)
+  (fset 'abbreviate-file-name-memo (memoize #'abbreviate-file-name))
+  (defun mode-line--buffer-display-name ()
+    "Project-relative path if visiting a file inside a project,
+abbreviated absolute path if visiting a file outside one,
+buffer name otherwise."
+    (if-let* ((file (buffer-file-name)))
+        (or (when-let* ((proj (project-current))
+                        (root (project-root proj)))
+              (file-relative-name file root))
+            (abbreviate-file-name-memo file))
+      (buffer-name)))
+  (defvar mode-line-buffer-file-name
+    '(:eval (propertize (mode-line--buffer-display-name)
+                        'help-echo (or (buffer-file-name) (buffer-name))
+                        'face (when (and (buffer-file-name) (buffer-modified-p))
+                                'font-lock-builtin-face)))
+    "Show project-relative file path, falling back to abbreviated path or buffer name.
+Modified file-backed buffers get `font-lock-builtin-face' applied to the name.")
+  (put 'mode-line-buffer-file-name 'risky-local-variable t)
+  (setq-default mode-line-format
+                '(" " mode-line-buffer-file-name " " mode-line-modes
+                  mode-line-format-right-align mode-line-misc-info
+                  " " mode-line-interactive-position
+                  mode-line-vc))
+  :config
+  (defun my/mode-line-pad (&rest _)
+    "Pad mode-line vertically via an invisible :box matching the theme bg.
+Symmetric `:line-width' — Emacs 32 dev rejects the cons form; using an integer
+keeps the modeline padded vertically while accepting a small bit of horizontal
+padding that blends into the background.  Re-runs on theme change."
+    (dolist (face '(mode-line mode-line-active mode-line-inactive))
+      (when (facep face)
+        (set-face-attribute face nil
+                            :box `(:line-width 8
+                                   :color ,(face-attribute face :background nil t))))))
+  (add-hook 'enable-theme-functions #'my/mode-line-pad)
+  (my/mode-line-pad)
+  (provide 'mode-line))
 
 (use-package ibuffer
   :bind ([remap list-buffers] . ibuffer))
@@ -428,7 +557,8 @@ are defining or executing a macro."
   (uniquify-buffer-name-style 'forward))
 
 (use-package display-line-numbers
-  :hook (display-line-numbers-mode . toggle-hl-line)
+  :hook ((prog-mode             . display-line-numbers-mode)
+         (display-line-numbers-mode . toggle-hl-line))
   :custom
   (display-line-numbers-width 4)
   (display-line-numbers-grow-only t)
@@ -455,13 +585,18 @@ are defining or executing a macro."
   :custom
   (vc-follow-symlinks t)
   (vc-git-print-log-follow t)
-  (vc-handled-backends '(Git)))
+  (vc-handled-backends '(Git))
+  (vc-display-status 'no-backend))
 
 (use-package ediff
   :defer t
   :custom
   (ediff-window-setup-function 'ediff-setup-windows-plain)
   (ediff-split-window-function 'split-window-horizontally))
+
+(use-package magit
+  :ensure t
+  :bind ("C-x g" . magit-status))
 
 (use-package eldoc
   :delight eldoc-mode
@@ -624,6 +759,26 @@ are defining or executing a macro."
   :custom
   (jinx-languages "en_US"))
 
+(use-package org
+  :bind ( :map mode-specific-map
+          ("c" . org-capture))
+  :custom
+  (org-directory "~/org")
+  (org-default-notes-file (expand-file-name "inbox.org" org-directory))
+  (org-startup-folded 'content)
+  (org-log-done 'time)
+  (org-src-fontify-natively t)
+  (org-edit-src-content-indentation 0)
+  (org-src-preserve-indentation t)
+  (org-image-actual-width nil)
+  (org-capture-templates
+   '(("t" "Todo"  entry (file+headline "" "Tasks")
+      "* TODO %?\n  %U\n  %a")
+     ("n" "Note"  entry (file+headline "" "Notes")
+      "* %?\n  %U")
+     ("j" "Journal" entry (file+olp+datetree "journal.org")
+      "* %?\n  %U"))))
+
 (use-package autorevert
   :hook (after-init . global-auto-revert-mode)
   :custom
@@ -736,6 +891,17 @@ are defining or executing a macro."
   (consult-preview-key nil)
   :init
   (setq completion-in-region-function #'consult-completion-in-region))
+
+(use-package embark
+  :ensure t
+  :bind (("C-."   . embark-act)
+         ("C-;"   . embark-dwim)
+         ("C-h B" . embark-bindings)))
+
+(use-package embark-consult
+  :ensure t
+  :after (embark consult)
+  :hook (embark-collect-mode . consult-preview-at-point-mode))
 
 (use-package corfu
   :ensure t
@@ -954,3 +1120,13 @@ are defining or executing a macro."
 
 (use-package ghostel-compile
   :hook (after-init . ghostel-compile-global-mode))
+
+(use-package gptel
+  :ensure t
+  :bind (("C-c g"   . gptel)
+         ("C-c RET" . gptel-send))
+  :custom
+  (gptel-default-mode 'org-mode)
+  :config
+  (setq gptel-model   'claude-haiku-4.5
+        gptel-backend (gptel-make-gh-copilot "Copilot")))
