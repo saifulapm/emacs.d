@@ -1105,21 +1105,31 @@ padding that blends into the background.  Re-runs on theme change."
   :ensure t
   :bind ("C-c y" . #'yeetube))
 
-(use-package alert
-  :ensure t
-  :defer t
-  :custom
-  (alert-default-style (if (eq system-type 'darwin) 'osx-notifier 'notifications)))
-
-(use-package spinner
-  :ensure t
-  :defer t)
-
 (use-package ghostel
   :ensure t
-  :bind ("C-c t" . ghostel)
+  :preface
+  (defun my/ghostel-new ()
+    "Always open a fresh `*ghostel*' buffer (Ghostty-style cmd-T new tab)."
+    (interactive)
+    (let ((current-prefix-arg '(4)))
+      (call-interactively #'ghostel)))
+  :bind (("C-c t"   . ghostel)
+         ("C-c T"   . ghostel-list-buffers)
+         :map project-prefix-map
+         ("t"       . ghostel-project)
+         ("T"       . ghostel-project-list-buffers)
+         :map ghostel-mode-map
+         ("s-t"     . my/ghostel-new)        ; cmd-T  → new tab
+         ("s-]"     . ghostel-next)          ; cmd-]  → next tab
+         ("s-["     . ghostel-previous))     ; cmd-[  → prev tab
   :custom
-  (ghostel-spinner-type 'half-circle))
+  ;; Silence OSC 9 / 777 desktop notifications — macOS attributes
+  ;; AppleScript-posted banners to Script Editor, so clicking them
+  ;; is useless.  See alert.el `osx-notifier' implementation.
+  (ghostel-notification-function nil)
+  :config
+  ;; Expose `ghostel-project' in the `C-x p p' dispatch menu.
+  (add-to-list 'project-switch-commands '(ghostel-project "Ghostel" ?t) t))
 
 (use-package ghostel-eshell
   :hook (eshell-load . ghostel-eshell-visual-command-mode))

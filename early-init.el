@@ -14,6 +14,13 @@
     					(lambda nil
                 (setq gc-cons-threshold original-gc-cons-threshold))))
 
+;; Paint the frame in the dark theme's colors before any package or
+;; theme loads, so startup doesn't flash white before `modus-vivendi'
+;; takes over.  Values mirror `init.el' overrides:
+;;   bg-main "#181818"  (modus-vivendi-palette-overrides)
+;;   fg-main "#ffffff"  (modus-vivendi default)
+;; `ns-appearance' + `ns-transparent-titlebar' keep the macOS title
+;; bar dark too — without them the bar paints light at launch.
 (setq-default default-frame-alist '((width . 170)
                                    (height . 52)
                                    (tool-bar-lines . 0)
@@ -21,9 +28,14 @@
                                    (left-fringe . 8)
                                    (right-fringe . 8)
                                    (bottom-divider-width . 0)
-                                   (right-divider-width . 1))
+                                   (right-divider-width . 1)
+                                   (background-color . "#181818")
+                                   (foreground-color . "#ffffff")
+                                   (ns-appearance . dark)
+                                   (ns-transparent-titlebar . t))
               initial-frame-alist default-frame-alist
 							use-short-answers t
+              frame-background-mode 'dark
               frame-inhibit-implied-resize t
               fringe-indicator-alist (assq-delete-all 'truncation fringe-indicator-alist))
 
