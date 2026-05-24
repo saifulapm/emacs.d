@@ -10,19 +10,21 @@
   :config
   (load-file (locate-user-emacs-file "early-init.el")))
 
-;; Not needed while the daemon is started by `brew services' (launchd) —
-;; its plist sets PATH so subprocesses find Homebrew tools.  Re-enable if
-;; cold-launching /Applications/Emacs.app directly via Finder/Spotlight.
-;; (use-package exec-path-from-shell
-;;   :ensure t
-;;   :when (memq window-system '(mac ns x))
-;;   :custom
-;;   ;; Login shell only — skip the interactive `-i' pass that sources the
-;;   ;; whole ~/.zshrc on every startup (~1000ms -> ~50ms).
-;;   (exec-path-from-shell-arguments '("-l"))
-;;   (exec-path-from-shell-check-startup-files nil)
-;;   :init
-;;   (exec-path-from-shell-initialize))
+;; Needed in any launch mode: `brew services' generates a plist with no
+;; `EnvironmentVariables', so the daemon inherits launchd's minimal
+;; /usr/bin:/bin PATH.  Run unconditionally (don't gate on
+;; `window-system') — a `--fg-daemon' has no window system but still
+;; needs Homebrew tools (gls, hunspell, intelephense, …).
+(use-package exec-path-from-shell
+  :ensure t
+  :when (memq system-type '(darwin gnu/linux))
+  :custom
+  ;; Login shell only — skip the interactive `-i' pass that sources the
+  ;; whole ~/.zshrc on every startup (~1000ms -> ~50ms).
+  (exec-path-from-shell-arguments '("-l"))
+  (exec-path-from-shell-check-startup-files nil)
+  :init
+  (exec-path-from-shell-initialize))
 
 (use-package delight
   :ensure t)
@@ -399,12 +401,17 @@ Modified file-backed buffers get `font-lock-builtin-face' applied to the name.")
     "Pad mode-line vertically via an invisible :box matching the theme bg.
 Symmetric `:line-width' — Emacs 32 dev rejects the cons form; using an integer
 keeps the modeline padded vertically while accepting a small bit of horizontal
-padding that blends into the background.  Re-runs on theme change."
+padding that blends into the background.  Re-runs on theme change.
+
+Skips when the face background is `unspecified' (i.e. before any theme has
+loaded) — otherwise `set-face-attribute' rejects the `:box :color' as invalid
+and pollutes daemon stderr."
     (dolist (face '(mode-line mode-line-active mode-line-inactive))
       (when (facep face)
-        (set-face-attribute face nil
-                            :box `(:line-width 8
-                                   :color ,(face-attribute face :background nil t))))))
+        (let ((bg (face-attribute face :background nil t)))
+          (unless (eq bg 'unspecified)
+            (set-face-attribute face nil
+                                :box `(:line-width 8 :color ,bg)))))))
   (add-hook 'enable-theme-functions #'my/mode-line-pad)
   (my/mode-line-pad)
   (provide 'mode-line))
@@ -473,18 +480,18 @@ padding that blends into the background.  Re-runs on theme change."
   :when (fboundp 'ns-do-applescript)
   :preface
   (defun mac-os-color-theme-dark-p ()
-    (thread-last
-      "tell application \"System Events\"
-           tell appearance preferences
-             if (dark mode) then
-               return \"true\"
-             else
-               return \"false\"
-             end if
-           end tell
-         end tell"
-      (ns-do-applescript)
-      (string-equal "true")))
+    "Return non-nil when macOS is in dark mode.
+Uses `defaults read' instead of `ns-do-applescript' so it works
+during `--fg-daemon' startup, where NS isn't yet initialised and
+AppleScript signals an unrecoverable \"Window system is not in
+use\" error that crashes the daemon."
+    (string-prefix-p
+     "Dark"
+     (or (ignore-errors
+           (string-trim
+            (shell-command-to-string
+             "defaults read -g AppleInterfaceStyle 2>/dev/null")))
+         "")))
   (defun mac-os-appearance-changed (appearance)
     "MacOS handler to detect when the color-scheme has changed."
     (pcase appearance

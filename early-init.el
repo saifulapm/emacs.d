@@ -67,7 +67,21 @@
     (scroll-bar-mode -1)))
 
 (when (featurep 'native-compile)
-  (setopt native-comp-async-report-warnings-errors 'silent))
+  (setopt native-comp-async-report-warnings-errors 'silent)
+  ;; emacs-plus links libgccjit against Homebrew gcc, whose internal
+  ;; lib dir (containing libemutls_w.a) isn't on ld's default search
+  ;; path.  Without LIBRARY_PATH, runtime trampoline compiles fail
+  ;; with `ld: library 'emutls_w' not found' and a launchd-started
+  ;; daemon never reaches `server-start'.  Wildcards survive macOS
+  ;; upgrades (darwinNN) and gcc major bumps.
+  (when (eq system-type 'darwin)
+    (when-let* ((gcc-libpath
+                 (car (file-expand-wildcards
+                       "/opt/homebrew/opt/gcc/lib/gcc/current/gcc/aarch64-apple-darwin*/*/"))))
+      (setenv "LIBRARY_PATH"
+              (if-let* ((existing (getenv "LIBRARY_PATH")))
+                  (concat gcc-libpath ":" existing)
+                gcc-libpath)))))
 
 (require 'package)
 (add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
