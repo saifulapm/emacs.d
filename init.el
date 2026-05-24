@@ -10,16 +10,19 @@
   :config
   (load-file (locate-user-emacs-file "early-init.el")))
 
-(use-package exec-path-from-shell
-  :ensure t
-  :when (memq window-system '(mac ns x))
-  :custom
-  ;; Login shell only — skip the interactive `-i' pass that sources the
-  ;; whole ~/.zshrc on every startup (~1000ms -> ~50ms).
-  (exec-path-from-shell-arguments '("-l"))
-  (exec-path-from-shell-check-startup-files nil)
-  :init
-  (exec-path-from-shell-initialize))
+;; Not needed while the daemon is started by `brew services' (launchd) —
+;; its plist sets PATH so subprocesses find Homebrew tools.  Re-enable if
+;; cold-launching /Applications/Emacs.app directly via Finder/Spotlight.
+;; (use-package exec-path-from-shell
+;;   :ensure t
+;;   :when (memq window-system '(mac ns x))
+;;   :custom
+;;   ;; Login shell only — skip the interactive `-i' pass that sources the
+;;   ;; whole ~/.zshrc on every startup (~1000ms -> ~50ms).
+;;   (exec-path-from-shell-arguments '("-l"))
+;;   (exec-path-from-shell-check-startup-files nil)
+;;   :init
+;;   (exec-path-from-shell-initialize))
 
 (use-package delight
   :ensure t)
@@ -587,6 +590,42 @@ padding that blends into the background.  Re-runs on theme change."
   (vc-git-print-log-follow t)
   (vc-handled-backends '(Git))
   (vc-display-status 'no-backend))
+
+(use-package tramp
+  :defer t
+  :custom
+  (tramp-default-method "ssh")
+  ;; Default verbose 3 floods the echo area with "Tramp: …" chatter on
+  ;; every save. 1 = errors only; bump to 6+ to debug a hang.
+  (tramp-verbose 1)
+  ;; Cache remote file stats for 60s so dired and completion don't
+  ;; re-stat on every keystroke. Stale-on-purpose; revert manually.
+  (remote-file-name-inhibit-cache 60)
+  ;; Lock/auto-save files are useless over ssh and double every write.
+  (remote-file-name-inhibit-locks t)
+  (remote-file-name-inhibit-auto-save-visited t)
+  ;; Files >1MB go through an out-of-band scp instead of inline base64
+  ;; copy — orders of magnitude faster for binaries and logs.
+  (tramp-copy-size-limit (* 1024 1024))
+  (tramp-use-scp-direct-remote-copying t)
+  ;; ControlMaster lives in ~/.ssh/config (Host *), so TRAMP shouldn't
+  ;; append its own -o ControlMaster=… args and fight with it.
+  (tramp-use-ssh-controlmaster-options nil)
+  (tramp-persistency-file-name
+   (expand-file-name "tramp" user-cache-directory))
+  :config
+  ;; Run async processes (compile, shell-command, project-find-file)
+  ;; directly over the existing ssh socket instead of spawning a new
+  ;; PTY per call. Requires the ControlMaster setup in ~/.ssh/config.
+  (connection-local-set-profile-variables
+   'remote-direct-async-process
+   '((tramp-direct-async-process . t)))
+  (connection-local-set-profiles
+   '(:application tramp :protocol "ssh")
+   'remote-direct-async-process)
+  (connection-local-set-profiles
+   '(:application tramp :protocol "scp")
+   'remote-direct-async-process))
 
 (use-package ediff
   :defer t
