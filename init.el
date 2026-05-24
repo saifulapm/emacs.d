@@ -477,6 +477,14 @@ and pollutes daemon stderr."
                          #'color-scheme-changed)))
 
 (use-package mac-os
+  :no-require               ; there is no `mac-os.el' on disk — this
+                            ; package is purely a `(provide 'mac-os)'
+                            ; flag for `dark-mode-enabled-p'.  Without
+                            ; `:no-require', use-package emits
+                            ; "Cannot load mac-os" and skips `:config'
+                            ; (so the `provide' never runs, the dark-
+                            ; mode probe falls back, and the wrong
+                            ; theme loads).
   :when (fboundp 'ns-do-applescript)
   :preface
   (defun mac-os-color-theme-dark-p ()
