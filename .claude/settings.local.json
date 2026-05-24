@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "/Users/saiful/Downloads/emacs.dz"
+    ]
+  },
+  "autoMemoryDirectory": "/Users/saiful/.config/emacs/.claude/memory"
+}
