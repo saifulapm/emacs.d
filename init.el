@@ -145,6 +145,53 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
   (defun font-installed-p (font-name)
     "Check if a font with FONT-NAME is available."
     (find-font (font-spec :name font-name)))
+  (defvar nerd-icons-fontset-size 13
+    "Point size used when mapping Nerd-Font ranges into the global fontset.
+Default `15' (the Maple Mono size) renders icon glyphs at their native
+width, which is *wider* than Maple Mono's cell — the glyph overflows
+into the next cell, the trailing space `eza --icons' emits gets eaten,
+and icons look heavier/blockier than the same bytes rendered in
+Ghostty (where CoreText scales the fallback glyph to the cell).
+Setting this 1-2pt below the default face size shrinks the glyph to
+sit cleanly inside one Maple Mono cell, matching Ghostty's look.
+Bump up if icons look too small; drop further if they still overflow.")
+  (defun setup-nerd-icons-fontset ()
+    "Route Nerd-Font codepoint ranges to `Symbols Nerd Font Mono'.
+Without this, glyphs in the Private Use Area (Devicons, Codicons,
+Material Design, Powerline, etc.) fall back to whatever Emacs picks
+\\=— usually tofu \\=— because Maple Mono ships none of them.  Mapping
+on the global fontset (`t') means the rule applies everywhere:
+modeline, dired, vertico/marginalia, ghostel shell prompts (starship,
+lsd, eza --icons), and any future buffer, without per-face fiddling.
+`prepend' ensures Symbols Nerd Font Mono wins over any earlier rule
+the theme or another package might have installed for these ranges.
+The fontset entry is a `font-spec' rather than a bare family name so
+we can pin `:size' to `nerd-icons-fontset-size' \\=— Emacs would
+otherwise render the fallback glyph at its native 15pt advance, which
+overflows Maple Mono's narrower cell.  Ranges come from the Nerd
+Fonts cheat-sheet \\=— keep them in sync with `nerd-icons-data-*'
+when upgrading the package."
+    (when (font-installed-p "Symbols Nerd Font Mono")
+      (let ((spec (font-spec :family "Symbols Nerd Font Mono"
+                             :size nerd-icons-fontset-size)))
+        (dolist (range '((#x23fb  . #x23fe)    ; IEC power symbols
+                         (#x2665  . #x2665)    ; Octicons heart
+                         (#x26a1  . #x26a1)    ; Octicons zap
+                         (#x2b58  . #x2b58)    ; IEC power circle
+                         (#xe000  . #xe00a)    ; Pomicons
+                         (#xe0a0  . #xe0d4)    ; Powerline + Powerline Extra
+                         (#xe200  . #xe2a9)    ; Font Awesome Extension
+                         (#xe300  . #xe3e3)    ; Weather
+                         (#xe5fa  . #xe6b7)    ; Seti-UI + Custom
+                         (#xe700  . #xe8ef)    ; Devicons
+                         (#xea60  . #xebeb)    ; Codicons
+                         (#xed00  . #xefce)    ; Font Awesome
+                         (#xf000  . #xf2ff)    ; Font Awesome
+                         (#xf300  . #xf372)    ; Font Logos
+                         (#xf400  . #xf533)    ; Octicons
+                         (#xf500  . #xfd46)    ; Material Design (BMP)
+                         (#xf0001 . #xf1af0))) ; Material Design (SMP)
+          (set-fontset-font t range spec nil 'prepend)))))
   (defun setup-fonts ()
     ;; Mirror ghostty: font-size = 15pt, adjust-cell-height = 50%.
     ;; Emacs `:height' is 1/10 pt -> 150.
@@ -170,7 +217,8 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
       (when mono
         (set-face-attribute 'default nil :font mono :height 150 :width 'normal :weight 'normal)
         (set-face-attribute 'fixed-pitch nil :font mono)
-        (set-face-attribute 'variable-pitch nil :font mono))))
+        (set-face-attribute 'variable-pitch nil :font mono)))
+    (setup-nerd-icons-fontset))
   (provide 'font))
 
 (use-package ligature
@@ -233,6 +281,18 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
      "trace))" "debug))" "info))" "warn))" "warning))"
      "error))" "eror))" "fatal))"
      "todo))" "fixme))" "note))" "hack))" "mark))")))
+
+(use-package nerd-icons
+  :ensure t
+  ;; Glyph lookup API (`nerd-icons-icon-for-file', `nerd-icons-faicon',
+  ;; `nerd-icons-codicon', …) used by the integration packages below
+  ;; and available everywhere for custom modeline / dashboard snippets.
+  ;; The font itself is wired into the global fontset by
+  ;; `setup-nerd-icons-fontset' in the `font' block above, so we do
+  ;; NOT call `nerd-icons-install-fonts' here — the font is already
+  ;; present at `~/Library/Fonts/SymbolsNerdFontMono-Regular.ttf'.
+  :custom
+  (nerd-icons-font-family "Symbols Nerd Font Mono"))
 
 (use-package cus-edit
   :custom
@@ -773,6 +833,13 @@ use\" error that crashes the daemon."
       (with-current-buffer (cdr buffer)
         (dired-noselect (dired-current-directory) dired-listing-switches)))))
 
+(use-package nerd-icons-dired
+  :ensure t
+  ;; Per-row file-type icons in dired listings. Pure visual layer:
+  ;; doesn't touch `dired-listing-switches' or hide-details, so it
+  ;; composes cleanly with `dired-toggle-dotfiles' above.
+  :hook (dired-mode . nerd-icons-dired-mode))
+
 (use-package comint
   :defer t
   :custom
@@ -965,6 +1032,16 @@ use\" error that crashes the daemon."
           ("M-DEL" . vertico-directory-delete-word))
   :hook (rfn-eshadow-update-overlay . vertico-directory-tidy))
 
+(use-package nerd-icons-completion
+  :ensure t
+  ;; Adds nerd-font icons to vertico minibuffer candidates by hooking
+  ;; into marginalia's annotation pipeline. Must load after marginalia
+  ;; or `nerd-icons-completion-marginalia-setup' is a no-op.
+  :after marginalia
+  :config
+  (nerd-icons-completion-mode)
+  (add-hook 'marginalia-mode-hook #'nerd-icons-completion-marginalia-setup))
+
 (use-package marginalia
   :ensure t
   :hook (after-init . marginalia-mode))
@@ -1032,6 +1109,16 @@ use\" error that crashes the daemon."
   :hook (corfu-mode . corfu-popupinfo-mode)
   :custom-face
   (corfu-popupinfo ((t :height 1.0))))
+
+(use-package nerd-icons-corfu
+  :ensure t
+  ;; Adds kind/category icons to corfu candidates (functions, vars,
+  ;; keywords, snippets, files…) via the `margin-formatters' hook
+  ;; corfu exposes. No advice, no remapping — corfu calls it during
+  ;; render so disabling corfu disables this transparently.
+  :after corfu
+  :config
+  (add-to-list 'corfu-margin-formatters #'nerd-icons-corfu-formatter))
 
 ;; (use-package corfu-terminal
 ;;  :ensure t
