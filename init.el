@@ -209,7 +209,7 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
      ;; Tilde / approx
      "<~" "~>" "~~" "<~>" "<~~" "~~>" "-~" "~-" "~@" "~~~~~~~"
      ;; Slashes / comments
-     "//" "///" "/*" "/**" "*/" "</" "/>" "</>" "<>"
+     "//" "///" "/*" "/**" "*/" "</" "/>" "</>" "<>" "<!--"
      ;; Plus / dot / question / colon families
      "++" "+++" "**" "***"
      ";;" ";;;" ".." "..." ".?" "?." "..<" ".="
@@ -224,7 +224,15 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
      ;; Maple Mono's signature: bracketed log-keyword ligatures
      "[TRACE]" "[DEBUG]" "[INFO]" "[WARN]" "[WARNING]"
      "[ERROR]" "[EROR]" "[FATAL]"
-     "[TODO]" "[FIXME]" "[NOTE]" "[HACK]" "[MARK]")))
+     "[TODO]" "[FIXME]" "[NOTE]" "[HACK]" "[MARK]"
+     ;; Keyword + double-close-paren — Maple Mono renders these as the
+     ;; same icon glyphs as the bracketed forms above. Lowercase only:
+     ;; the font's `calt' table is case-insensitive but Emacs's
+     ;; `ligature.el' composition isn't, so `FixMe))' / `TODO))' won't
+     ;; trigger — add the casings you actually type if you need them.
+     "trace))" "debug))" "info))" "warn))" "warning))"
+     "error))" "eror))" "fatal))"
+     "todo))" "fixme))" "note))" "hack))" "mark))")))
 
 (use-package cus-edit
   :custom

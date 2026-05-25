@@ -20,7 +20,7 @@ set -euo pipefail
 # ss09, ss10, ss11`. Only cv* features can be frozen (single/alternate
 # substitutions); calt and ss* are contextual ligatures handled by Emacs
 # `ligature.el` instead.
-FEATURES="cv03,cv31,cv32,cv62,cv63,cv64"
+FEATURES="cv03,cv31,cv32,cv62,cv63,cv64,ss03,ss07,ss08,ss09,ss10,ss11,zero"
 
 # Source (read) and destination (write) font dirs. macOS keeps both in
 # ~/Library/Fonts (the variable Maple Mono is installed there by hand). On
