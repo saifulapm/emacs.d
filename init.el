@@ -1199,6 +1199,15 @@ use\" error that crashes the daemon."
     (interactive)
     (let ((current-prefix-arg '(4)))
       (call-interactively #'ghostel)))
+  (defun my/ghostel-restore-line-spacing ()
+    "Re-apply global `line-spacing' inside ghostel buffers.
+`ghostel-mode' forces `line-spacing' to 0 so kitty graphics slices and
+box-drawing glyphs tile flush; that diverges visually from eshell and
+other buffers where the global cons/float value from `setup-fonts'
+applies.  Restoring it here keeps row height consistent at the cost of
+small gaps in inline images and TUI frames — accepted trade-off."
+    (setq-local line-spacing
+                (if (>= emacs-major-version 31) '(0.25 . 0.25) 0.5)))
   :bind (("C-c t"   . ghostel)
          ("C-c T"   . ghostel-list-buffers)
          :map project-prefix-map
@@ -1208,6 +1217,7 @@ use\" error that crashes the daemon."
          ("s-t"     . my/ghostel-new)        ; cmd-T  → new tab
          ("s-]"     . ghostel-next)          ; cmd-]  → next tab
          ("s-["     . ghostel-previous))     ; cmd-[  → prev tab
+  :hook (ghostel-mode . my/ghostel-restore-line-spacing)
   :custom
   ;; Silence OSC 9 / 777 desktop notifications — macOS attributes
   ;; AppleScript-posted banners to Script Editor, so clicking them
