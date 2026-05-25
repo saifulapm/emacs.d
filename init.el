@@ -132,7 +132,15 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
 
 (use-package font
   :no-require
-  :hook (after-init . setup-fonts)
+  ;; In daemon mode `after-init-hook` fires before any frame exists, so
+  ;; `find-font` (and thus `font-installed-p`) returns nil for every family
+  ;; and `setup-fonts` silently no-ops — leaving the first GUI client to
+  ;; inherit fontconfig's default monospace (Maple Mono Normal NF) instead
+  ;; of `Maple Mono`. `server-after-make-frame-hook` fires once per
+  ;; emacsclient connect, so we re-apply there too; the face just gets
+  ;; re-set to the same value, which is harmless.
+  :hook ((after-init . setup-fonts)
+         (server-after-make-frame . setup-fonts))
   :preface
   (defun font-installed-p (font-name)
     "Check if a font with FONT-NAME is available."
@@ -148,6 +156,14 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
     ;; breaks vertico's resize math, so fall back to the float there.
     (setq-default line-spacing
                   (if (>= emacs-major-version 31) '(0.25 . 0.25) 0.5))
+    ;; Prefer `Maple Mono Ghostty' — the bake-frozen variant produced by
+    ;; `scripts/bake-maple-mono.sh' with my curated cv*/zero subset already
+    ;; substituted into the GSUB table. Emacs's HarfBuzz shaper only applies
+    ;; `calt/liga/clig/rlig/mark/mkmk' by default and silently ignores
+    ;; fontconfig's `:fontfeatures=' token, so feature toggling at the spec
+    ;; level doesn't work — the features have to live in the font file.
+    ;; Falls back to plain `Maple Mono' (variable, no features baked) and
+    ;; then `JetBrains Mono' when the bake hasn't been run yet.
     (let ((mono (cond ((font-installed-p "Maple Mono Ghostty") "Maple Mono Ghostty")
                       ((font-installed-p "Maple Mono") "Maple Mono")
                       ((font-installed-p "JetBrains Mono") "JetBrains Mono"))))
@@ -162,10 +178,11 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
   :hook (after-init . global-ligature-mode)
   :config
   ;; Enable Maple Mono / JetBrains Mono programming ligatures everywhere.
-  ;; This covers the `calt' OpenType feature; the `cv*' and `ss*' character
-  ;; variants and stylistic sets require a HarfBuzz-enabled Emacs build,
-  ;; which this Emacs does not have.
-  ;; Canonical Maple Mono `calt' + `ss09/ss10/ss11' ligature set, sourced from
+  ;; This drives the `calt' OpenType feature — Emacs composes the character
+  ;; sequences below, then HarfBuzz substitutes the ligature glyphs. The
+  ;; `cv*' and `ss*' families are toggled separately via `:fontfeatures='
+  ;; in `setup-fonts' above.
+  ;; Canonical Maple Mono `calt' ligature set, sourced from
   ;; https://github.com/subframe7536/maple-font/blob/variable/source/features/README.md
   ;; Italic letter-pair ligatures (`ff' `tt' `ll' `al' `cl' …) are deliberately
   ;; omitted because they would composite parts of identifiers like `cell',

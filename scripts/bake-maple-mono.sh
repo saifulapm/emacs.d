@@ -22,12 +22,18 @@ set -euo pipefail
 # `ligature.el` instead.
 FEATURES="cv03,cv31,cv32,cv62,cv63,cv64"
 
-# Platform-specific font directory.
+# Source (read) and destination (write) font dirs. macOS keeps both in
+# ~/Library/Fonts (the variable Maple Mono is installed there by hand). On
+# Linux the source comes from the AUR `maplemono-variable` package, which
+# unpacks to /usr/share/fonts/MapleMono-Variable/ — read-only system path,
+# so baked output goes to the user font dir instead.
 if [[ "$(uname)" == "Darwin" ]]; then
-  FONT_DIR="$HOME/Library/Fonts"
+  SRC_DIR="$HOME/Library/Fonts"
+  DST_DIR="$HOME/Library/Fonts"
 else
-  FONT_DIR="$HOME/.local/share/fonts"
-  mkdir -p "$FONT_DIR"
+  SRC_DIR="/usr/share/fonts/MapleMono-Variable"
+  DST_DIR="$HOME/.local/share/fonts"
+  mkdir -p "$DST_DIR"
 fi
 
 require() {
@@ -49,12 +55,12 @@ bake() {
 
 require pyftfeatfreeze
 
-bake "$FONT_DIR/MapleMono[wght].ttf"        "$FONT_DIR/MapleMono-Ghostty[wght].ttf"        "Regular"
-bake "$FONT_DIR/MapleMono-Italic[wght].ttf" "$FONT_DIR/MapleMono-Ghostty-Italic[wght].ttf" "Italic"
+bake "$SRC_DIR/MapleMono[wght].ttf"        "$DST_DIR/MapleMono-Ghostty[wght].ttf"        "Regular"
+bake "$SRC_DIR/MapleMono-Italic[wght].ttf" "$DST_DIR/MapleMono-Ghostty-Italic[wght].ttf" "Italic"
 
 # Refresh the font cache on Linux so apps see the new files immediately.
 if command -v fc-cache >/dev/null 2>&1; then
-  fc-cache -f "$FONT_DIR" 2>/dev/null || true
+  fc-cache -f "$DST_DIR" 2>/dev/null || true
 fi
 
 echo
