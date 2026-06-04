@@ -211,11 +211,15 @@ when upgrading the package."
     ;; level doesn't work — the features have to live in the font file.
     ;; Falls back to plain `Maple Mono' (variable, no features baked) and
     ;; then `JetBrains Mono' when the bake hasn't been run yet.
+    ;; Linux renders the same `:height' visibly larger than macOS (no Retina
+    ;; HiDPI scaling, different DPI assumptions), so dial it down there to
+    ;; match the macOS look.
     (let ((mono (cond ((font-installed-p "Maple Mono Ghostty") "Maple Mono Ghostty")
                       ((font-installed-p "Maple Mono") "Maple Mono")
-                      ((font-installed-p "JetBrains Mono") "JetBrains Mono"))))
+                      ((font-installed-p "JetBrains Mono") "JetBrains Mono")))
+          (height (if (eq system-type 'gnu/linux) 120 150)))
       (when mono
-        (set-face-attribute 'default nil :font mono :height 150 :width 'normal :weight 'normal)
+        (set-face-attribute 'default nil :font mono :height height :width 'normal :weight 'normal)
         (set-face-attribute 'fixed-pitch nil :font mono)
         (set-face-attribute 'variable-pitch nil :font mono)))
     (setup-nerd-icons-fontset))
