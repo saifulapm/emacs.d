@@ -1342,6 +1342,12 @@ use\" error that crashes the daemon."
   :ensure t
   :bind ("C-c y" . #'yeetube))
 
+(use-package project
+  :config
+  ;; Surface `project-dired' (dired at the project root, also on `C-x p D')
+  ;; in the `C-x p p' switch menu, on `D'.  `d' stays "Find directory".
+  (add-to-list 'project-switch-commands '(project-dired "Dired" ?D) t))
+
 (use-package ghostel
   :ensure t
   :preface
@@ -1379,6 +1385,22 @@ entry exists or if `tic' is missing — so a fresh Mac self-heals on first run."
           (call-process "tic" nil nil nil "-x" "-o"
                         (expand-file-name "~/.terminfo") src)
           (message "ghostel: installed xterm-ghostty terminfo into ~/.terminfo")))))
+  (defun my/ghostel-with-editor-setup ()
+    "Make programs spawned inside a (local) ghostel use THIS Emacs as $EDITOR.
+`ghostel-mode' is `fundamental-mode'-derived, so `with-editor-export-editor'
+can't be hooked like shell/term/eshell/vterm.  ghostel exposes
+`ghostel-pre-spawn-hook' for exactly this — it runs with `process-environment'
+bound to the about-to-be-spawned child.  The CHANGELOG suggests a public
+`with-editor-setup-environment' upstream never shipped, so we drive the internal
+`with-editor--setup' with the env-var name bound.  Programs run in ghostel
+\(Claude Code's Ctrl-G, git, …) then edit in a buffer of this Emacs; finish with
+`C-x #'.  Skipped for remote/TRAMP ghostels, whose sleeping-editor path needs an
+output filter ghostel doesn't provide (it would hang)."
+    (when (and (not (file-remote-p default-directory))
+               (require 'with-editor nil t))
+      (let ((with-editor--envvar "EDITOR"))
+        (with-editor--setup))
+      (setenv "VISUAL" (getenv "EDITOR"))))
   :init
   ;; Self-provision the terminfo the daemon needs for `emacsclient -t' frames,
   ;; so a new Mac just works — no manual `tic' step to remember.
@@ -1411,7 +1433,9 @@ entry exists or if `tic' is missing — so a fresh Mac self-heals on first run."
                        ("message" message)))
   :config
   ;; Expose `ghostel-project' in the `C-x p p' dispatch menu.
-  (add-to-list 'project-switch-commands '(ghostel-project "Ghostel" ?t) t))
+  (add-to-list 'project-switch-commands '(ghostel-project "Ghostel" ?t) t)
+  ;; Programs run inside ghostel edit in THIS Emacs (see the defun above).
+  (add-hook 'ghostel-pre-spawn-hook #'my/ghostel-with-editor-setup))
 
 (use-package ghostel-eshell
   :hook (eshell-load . ghostel-eshell-visual-command-mode))
