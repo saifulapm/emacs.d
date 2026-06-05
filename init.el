@@ -518,9 +518,19 @@ and pollutes daemon stderr."
   (inhibit-splash-screen t))
 
 (use-package menu-bar
-  :unless (display-graphic-p)
   :config
-  (menu-bar-mode -1))
+  (menu-bar-mode -1)
+  ;; `menu-bar-mode -1' hides the menu globally, but on a macOS daemon creating
+  ;; a GUI frame re-enables it, so later text-terminal frames (`emacsclient -t')
+  ;; come up WITH a menu bar.  The old `:unless (display-graphic-p)' guard can't
+  ;; help — on a daemon it runs once, with no frame to test.  Force the menu off
+  ;; per TTY frame instead; a no-op on GUI frames, and works on macOS + Linux.
+  (defun my/menu-bar-hide-on-tty (&optional frame)
+    "Remove the menu bar on FRAME when it is a text terminal."
+    (unless (display-graphic-p frame)
+      (set-frame-parameter frame 'menu-bar-lines 0)))
+  (add-hook 'after-make-frame-functions #'my/menu-bar-hide-on-tty)
+  (mapc #'my/menu-bar-hide-on-tty (frame-list)))
 
 (use-package tooltip
   :when (window-system)
@@ -822,6 +832,17 @@ use\" error that crashes the daemon."
     (setq insert-directory-program "gls"))
   :custom
   (dired-listing-switches dired-listing-switches-dotfiles)
+  ;; Quality-of-life behaviour, no extra packages required:
+  (dired-dwim-target t)                        ; 2nd visible dired buffer = default copy/move target
+  (dired-recursive-copies 'always)             ; don't ask on recursive copy
+  (dired-recursive-deletes 'always)            ; don't ask on recursive delete
+  (dired-kill-when-opening-new-dired-buffer t) ; descending reuses the buffer (replaces dired-single)
+  (dired-auto-revert-buffer #'dired-directory-changed-p) ; refresh listing when the dir changed
+  (dired-mouse-drag-files t)                   ; drag rows out to other apps
+  (dired-isearch-filenames 'dwim)              ; C-s sticks to filenames when on one
+  (dired-vc-rename-file t)                      ; renames go through VC so history follows
+  (dired-create-destination-dirs 'ask)         ; offer to mkdir missing copy/move targets
+  (dired-clean-confirm-killing-deleted-buffers nil)
   :config
   (defun dired-home-directory ()
     (interactive)
@@ -843,6 +864,45 @@ use\" error that crashes the daemon."
   ;; doesn't touch `dired-listing-switches' or hide-details, so it
   ;; composes cleanly with `dired-toggle-dotfiles' above.
   :hook (dired-mode . nerd-icons-dired-mode))
+
+(use-package dired-x
+  ;; Built-in dired extensions. Loaded after dired so its keymap additions land:
+  ;; `C-x M-o' -> dired-omit-mode, `* .' -> mark-by-extension, plus the
+  ;; `dired-guess-shell-alist-user' table that `!' consults for defaults.
+  :after dired
+  :config
+  (when (eq system-type 'darwin)
+    ;; `!' (dired-do-shell-command) defaults to opening with the macOS app.
+    (setq dired-guess-shell-alist-user '((".*" "open")))))
+
+(use-package diredfl
+  :ensure t
+  ;; File-type colourisation. Pure font-lock layer; composes with nerd-icons.
+  :hook (dired-mode . diredfl-mode))
+
+(use-package dired-subtree
+  :ensure t
+  :after dired
+  ;; `TAB' expands a directory inline as a subtree; `S-TAB' cycles fold depth.
+  ;; Both keys were unbound in dired-mode by default, so nothing is shadowed.
+  :bind ( :map dired-mode-map
+          ("<tab>" . dired-subtree-toggle)
+          ("<backtab>" . dired-subtree-cycle))
+  :custom (dired-subtree-use-backgrounds nil)
+  :config
+  ;; nerd-icons-dired only re-icons on `dired-after-readin-hook'; subtree
+  ;; inserts rows without re-reading, so re-icon the buffer after a toggle.
+  (advice-add 'dired-subtree-toggle :after #'nerd-icons-dired--refresh)
+  (advice-add 'dired-subtree-cycle  :after #'nerd-icons-dired--refresh))
+
+(use-package dired-preview
+  :ensure t
+  :after dired
+  ;; Auto-preview the file at point while this (buffer-local) mode is on.
+  ;; `P' toggles it -- shadows the rarely-used `dired-do-print' (still on M-x).
+  :custom (dired-preview-delay 0.4)
+  :bind ( :map dired-mode-map
+          ("P" . dired-preview-mode)))
 
 (use-package comint
   :defer t
@@ -1299,6 +1359,30 @@ applies.  Restoring it here keeps row height consistent at the cost of
 small gaps in inline images and TUI frames — accepted trade-off."
     (setq-local line-spacing
                 (if (>= emacs-major-version 31) '(0.25 . 0.25) 0.5)))
+  (defun my/ghostel-ensure-terminfo ()
+    "Install ghostel's bundled `xterm-ghostty' terminfo into `~/.terminfo'.
+The Emacs daemon builds `emacsclient -t' frames with TERM=xterm-ghostty but
+runs without $TERMINFO, so it can't see Ghostty.app's copy and dies with
+\"Terminal type xterm-ghostty is not defined\".  ~/.terminfo is searched via
+$HOME, so installing the entry there fixes it.  Idempotent — a no-op once the
+entry exists or if `tic' is missing — so a fresh Mac self-heals on first run."
+    (interactive)
+    (unless (seq-some (lambda (d)
+                        (file-exists-p
+                         (expand-file-name (format "~/.terminfo/%s/xterm-ghostty" d))))
+                      '("78" "x"))
+      (let ((src (car (file-expand-wildcards
+                       (expand-file-name
+                        "ghostel-*/etc/terminfo/xterm-ghostty.terminfo"
+                        package-user-dir)))))
+        (when (and src (executable-find "tic"))
+          (call-process "tic" nil nil nil "-x" "-o"
+                        (expand-file-name "~/.terminfo") src)
+          (message "ghostel: installed xterm-ghostty terminfo into ~/.terminfo")))))
+  :init
+  ;; Self-provision the terminfo the daemon needs for `emacsclient -t' frames,
+  ;; so a new Mac just works — no manual `tic' step to remember.
+  (my/ghostel-ensure-terminfo)
   :bind (("C-c t"   . ghostel)
          ("C-c T"   . ghostel-list-buffers)
          :map project-prefix-map
@@ -1314,6 +1398,17 @@ small gaps in inline images and TUI frames — accepted trade-off."
   ;; AppleScript-posted banners to Script Editor, so clicking them
   ;; is useless.  See alert.el `osx-notifier' implementation.
   (ghostel-notification-function nil)
+  ;; Bigger scrollback — Claude Code sessions blow past the 5MB default.
+  ;; Materialized into the buffer, so consult-line/isearch reach history.
+  (ghostel-max-scrollback (* 20 1024 1024))   ; ~20k rows
+  ;; Extend the `ghostel_cmd' whitelist with magit, so `ghostel_cmd magit'
+  ;; from inside the terminal opens `magit-status' in Emacs.
+  (ghostel-eval-cmds '(("find-file" find-file)
+                       ("find-file-other-window" find-file-other-window)
+                       ("dired" dired)
+                       ("dired-other-window" dired-other-window)
+                       ("magit" magit-status)
+                       ("message" message)))
   :config
   ;; Expose `ghostel-project' in the `C-x p p' dispatch menu.
   (add-to-list 'project-switch-commands '(ghostel-project "Ghostel" ?t) t))
