@@ -978,7 +978,14 @@ use\" error that crashes the daemon."
   :hook (after-init . which-key-mode)
   :delight which-key-mode
   :custom
-  (which-key-idle-delay 0.75))
+  (which-key-idle-delay 0.75)
+  :config
+  ;; My global `line-spacing' (init.el:204) makes rows 1.5x tall, which breaks
+  ;; the side-window's `fit-window-to-buffer' math and clips the bottom row.
+  ;; Reset it inside the which-key buffer so the popup fits exactly -- the same
+  ;; fix karthink uses alongside his own global line-spacing.
+  (add-hook 'which-key-init-buffer-hook
+            (lambda () (setq-local line-spacing nil))))
 
 (use-package doc-view
   :defer t
