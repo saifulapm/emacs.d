@@ -222,6 +222,20 @@ when upgrading the package."
         (set-face-attribute 'default nil :font mono :height height :width 'normal :weight 'normal)
         (set-face-attribute 'fixed-pitch nil :font mono)
         (set-face-attribute 'variable-pitch nil :font mono)))
+    ;; Daemon size fix.  The FIRST emacsclient frame is sized while the default
+    ;; face is still macOS's fallback `Menlo' 12pt (the font swap above no-ops
+    ;; until a GUI frame exists), and `frame-inhibit-implied-resize' then freezes
+    ;; that wrong pixel size — so the first frame comes up SMALLER than every
+    ;; later frame (which is born after Maple Mono is cached on the daemon).
+    ;; Re-assert the configured char dimensions here, *after* the real font is
+    ;; applied, so every client frame settles to the same size no matter which
+    ;; font it was born with.  Dimensions come from `default-frame-alist' to keep
+    ;; a single source of truth.
+    (when (display-graphic-p)
+      (let ((w (cdr (assq 'width default-frame-alist)))
+            (h (cdr (assq 'height default-frame-alist))))
+        (when (and (integerp w) (integerp h))
+          (set-frame-size (selected-frame) w h))))
     (setup-nerd-icons-fontset))
   (provide 'font))
 
@@ -1404,7 +1418,7 @@ Falls back to the abbreviated absolute path when the file isn't in a project."
    '((project-find-file      "Find file" ?f)
      (consult-ripgrep        "Search"    ?g)
      (consult-project-buffer "Buffer"    ?b)
-     (project-dired          "Dired"     ?D)
+     (project-dired          "Dired"     ?d)
      (magit-project-status   "Magit"     ?m)
      (project-compile        "Compile"   ?c)
      (project-eshell         "Eshell"    ?e)

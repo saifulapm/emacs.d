@@ -21,8 +21,8 @@
 ;;   fg-main "#ffffff"  (modus-vivendi default)
 ;; `ns-appearance' + `ns-transparent-titlebar' keep the macOS title
 ;; bar dark too — without them the bar paints light at launch.
-(setq-default default-frame-alist '((width . 170)
-                                   (height . 52)
+(setq-default default-frame-alist '((width . 132)   ; compact default; re-asserted in `setup-fonts'
+                                   (height . 36)     ; (daemon's first frame is born in Menlo, not Maple)
                                    (tool-bar-lines . 0)
                                    (vertical-scroll-bars . nil)
                                    (left-fringe . 8)
