@@ -911,6 +911,18 @@ use\" error that crashes the daemon."
   (comint-highlight-input nil)
   (comint-input-ignoredups t))
 
+(use-package with-editor
+  :ensure t
+  ;; Use THIS Emacs as $EDITOR for programs launched from in-Emacs shells, so
+  ;; e.g. `git commit' opens an editor buffer here instead of a nested editor.
+  ;; ghostel is wired separately (`ghostel-pre-spawn-hook'), since it's
+  ;; `fundamental-mode' and `with-editor-export-editor' can't hook it.  In these
+  ;; modes the edit buffer gets `with-editor-mode' → finish `C-c C-c', cancel
+  ;; `C-c C-k'.  (Add `(vterm-mode . with-editor-export-editor)' if you install vterm.)
+  :hook ((eshell-mode . with-editor-export-editor)
+         (shell-mode  . with-editor-export-editor)
+         (term-exec   . with-editor-export-editor)))
+
 (use-package rect
   :bind (("C-x r C-y" . rectangle-yank-add-lines))
   :custom
@@ -1136,6 +1148,16 @@ use\" error that crashes the daemon."
   :after (embark consult)
   :hook (embark-collect-mode . consult-preview-at-point-mode))
 
+(use-package wgrep
+  :ensure t
+  ;; Make a grep/consult-ripgrep results buffer editable: `embark-export' a
+  ;; `consult-ripgrep' (or `C-x p g') search to a grep buffer, hit `C-c C-p',
+  ;; edit matches in place, `C-c C-c' to apply across the project.
+  :bind ( :map grep-mode-map
+          ("C-c C-p" . wgrep-change-to-wgrep-mode))
+  :custom
+  (wgrep-auto-save-buffer t))   ; save touched files automatically on apply
+
 (use-package corfu
   :ensure t
   :bind ( :map corfu-map
@@ -1343,10 +1365,65 @@ use\" error that crashes the daemon."
   :bind ("C-c y" . #'yeetube))
 
 (use-package project
+  :bind ( :map project-prefix-map
+          ("b" . consult-project-buffer)   ; was: project-switch-to-buffer
+          ("g" . consult-ripgrep)          ; was: project-find-regexp
+          ("m" . magit-project-status)     ; was: unbound
+          ("w" . my/project-copy-relative-path))
+  :preface
+  ;; Declare special so the let in `save-project-buffers-only' is dynamic
+  ;; (else the byte-compiler makes it lexical and the binding does nothing).
+  (defvar compilation-save-buffers-predicate)
+  (defun my/project-copy-relative-path ()
+    "Copy the current file's path, relative to its project root, to the kill ring.
+Falls back to the abbreviated absolute path when the file isn't in a project."
+    (interactive)
+    (if-let* ((file (buffer-file-name)))
+        (let* ((proj (project-current nil (file-name-directory file)))
+               (path (if proj
+                         (file-relative-name file (project-root proj))
+                       (abbreviate-file-name file))))
+          (kill-new path)
+          (message "Copied: %s" path))
+      (user-error "Buffer is not visiting a file")))
+  :custom
+  ;; Treat each git submodule as its own project.
+  (project-vc-merge-submodules nil)
+  ;; Drop an empty `.project' file to mark a non-git dir as a project root.
+  ;; Deliberately NOT package.json/composer.json: every nested node_modules /
+  ;; vendor sub-package has one, which would fragment projects.  `.git' already
+  ;; roots my theme/React/Laravel repos correctly.
+  (project-vc-extra-root-markers '(".project"))
+  ;; Per-project compilation buffers, e.g. `*toughon-compilation*'.
+  (project-compilation-buffer-name-function #'project-prefixed-buffer-name)
+  ;; Labeled `C-x p p' switch menu; keys match the `project-prefix-map' rebinds
+  ;; above.  `Other…' (o) escapes to ANY project command (kill, replace, shell).
+  ;; (Preferred over `project-switch-use-entire-map', which shows only a bare,
+  ;; unlabeled key list.)
+  (project-switch-commands
+   '((project-find-file      "Find file" ?f)
+     (consult-ripgrep        "Search"    ?g)
+     (consult-project-buffer "Buffer"    ?b)
+     (project-dired          "Dired"     ?D)
+     (magit-project-status   "Magit"     ?m)
+     (project-compile        "Compile"   ?c)
+     (project-eshell         "Eshell"    ?e)
+     (project-any-command    "Other…"    ?o)))
   :config
-  ;; Surface `project-dired' (dired at the project root, also on `C-x p D')
-  ;; in the `C-x p p' switch menu, on `D'.  `d' stays "Find directory".
-  (add-to-list 'project-switch-commands '(project-dired "Dired" ?D) t))
+  ;; Before `C-x p c', only prompt to save THIS project's modified buffers,
+  ;; not every buffer in Emacs (handy with several projects open).
+  (define-advice project-compile (:around (fn) save-project-buffers-only)
+    "Only prompt to save the current project's buffers before compiling."
+    (let* ((bufs (project-buffers (project-current)))
+           (compilation-save-buffers-predicate
+            (lambda () (memq (current-buffer) bufs))))
+      (funcall fn)))
+  ;; Auto-discover my projects so `C-x p p' lists them without visiting first
+  ;; (the project.el answer to `projectile-project-search-path').  Non-recursive
+  ;; — immediate children only — so it never crawls node_modules / vendor.
+  (dolist (dir '("~/Sites/shopify_themes/" "~/Sites/react/" "~/Sites/laravel/"))
+    (when (file-directory-p (expand-file-name dir))
+      (project-remember-projects-under (expand-file-name dir)))))
 
 (use-package ghostel
   :ensure t
@@ -1434,6 +1511,9 @@ output filter ghostel doesn't provide (it would hang)."
   :config
   ;; Expose `ghostel-project' in the `C-x p p' dispatch menu.
   (add-to-list 'project-switch-commands '(ghostel-project "Ghostel" ?t) t)
+  ;; `C-x p k' (project-kill-buffers) also closes this project's Ghostel
+  ;; terminals — by default they survive (ghostel-mode derives fundamental-mode).
+  (add-to-list 'project-kill-buffer-conditions '(derived-mode . ghostel-mode))
   ;; Programs run inside ghostel edit in THIS Emacs (see the defun above).
   (add-hook 'ghostel-pre-spawn-hook #'my/ghostel-with-editor-setup))
 
@@ -1445,10 +1525,37 @@ output filter ghostel doesn't provide (it would hang)."
 
 (use-package gptel
   :ensure t
+  :preface
+  (defvar my/gptel-project-directory
+    (expand-file-name "gptel-chats/" user-emacs-directory)
+    "Directory holding per-project gptel chat files (kept out of the repos).")
+  (defun my/gptel-project ()
+    "Open a gptel chat scoped to the current project, in a right side window.
+The chat file is keyed by project name under `my/gptel-project-directory',
+so it never lands inside the project repo.  `default-directory' is bound to
+the project root so gptel's tools/context resolve against it."
+    (interactive)
+    (require 'gptel)
+    (let* ((proj (project-current t))
+           (name (file-name-nondirectory (directory-file-name (project-root proj))))
+           (file (expand-file-name (concat name ".org") my/gptel-project-directory))
+           (default-directory (project-root proj)))
+      (make-directory my/gptel-project-directory t)
+      (let ((buf (find-file-noselect file)))
+        (with-current-buffer buf
+          (unless (bound-and-true-p gptel-mode) (gptel-mode 1)))
+        (select-window
+         (display-buffer
+          buf '(display-buffer-in-side-window
+                (side . right) (window-width . 0.4)))))))
   :bind (("C-c g"   . gptel)
-         ("C-c RET" . gptel-send))
+         ("C-c RET" . gptel-send)
+         :map project-prefix-map
+         ("a" . my/gptel-project))
   :custom
   (gptel-default-mode 'org-mode)
   :config
+  ;; Expose the per-project chat in the `C-x p p' dispatch menu.
+  (add-to-list 'project-switch-commands '(my/gptel-project "AI chat" ?a) t)
   (setq gptel-model   'claude-haiku-4.5
         gptel-backend (gptel-make-gh-copilot "Copilot")))
