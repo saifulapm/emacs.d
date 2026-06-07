@@ -125,6 +125,14 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
          ("S-<up>"    . windmove-up)
          ("S-<down>"  . windmove-down)))
 
+;; Flip a two- (or many-) window layout between side-by-side and stacked.
+;; `transpose-frame' swaps the x and y axes -- the "vertical split <->
+;; horizontal split" toggle.  (Suite also has rotate-/flip-/flop-frame.)
+(use-package transpose-frame
+  :ensure t
+  :bind ( :map ctl-x-4-map
+          ("t" . transpose-frame)))
+
 (use-package mouse
   :hook (after-init . context-menu-mode)
   :bind (("<mode-line> <mouse-2>" . nil)
@@ -1550,6 +1558,15 @@ output filter ghostel doesn't provide (it would hang)."
   (defvar my/gptel-project-directory
     (expand-file-name "gptel-chats/" user-emacs-directory)
     "Directory holding per-project gptel chat files (kept out of the repos).")
+  (defvar my/gptel-history-directory
+    (expand-file-name "gptel-chats/history/" user-emacs-directory)
+    "Directory where one-off (non-file) gptel chats are auto-saved on kill.")
+  (defvar my/gptel-commit-system
+    "You are a Git expert.  From the staged diff, write a commit message: a \
+concise imperative subject line under 50 characters, a blank line, then a \
+short body explaining what changed and why.  Output only the message text, \
+with no code fences or commentary."
+    "System prompt used by `my/gptel-commit-summary'.")
   (defun my/gptel-project ()
     "Open a gptel chat scoped to the current project, in a right side window.
 The chat file is keyed by project name under `my/gptel-project-directory',
@@ -1569,14 +1586,99 @@ the project root so gptel's tools/context resolve against it."
          (display-buffer
           buf '(display-buffer-in-side-window
                 (side . right) (window-width . 0.4)))))))
+  ;; --- Session auto-save (jim-myhrberg) -----------------------------------
+  (defun my/gptel-autosave-session ()
+    "Persist an unsaved gptel chat to `my/gptel-history-directory' on kill.
+Skips buffers already visiting a file (e.g. the per-project chats) and empty
+scratch sessions."
+    (when (and (bound-and-true-p gptel-mode)
+               (not buffer-file-name)
+               (> (buffer-size) 0))
+      (make-directory my/gptel-history-directory t)
+      (write-region
+       (point-min) (point-max)
+       (expand-file-name (format-time-string "gptel-%Y%m%d-%H%M%S.org")
+                         my/gptel-history-directory))))
+  ;; --- Prose-friendly chat buffers + arm auto-save ------------------------
+  (defun my/gptel-prose-setup ()
+    "Make gptel chat buffers comfortable, and arm session auto-save."
+    (visual-line-mode 1)
+    (add-hook 'kill-buffer-hook #'my/gptel-autosave-session nil t))
+  ;; --- Per-project context (chen-bin / nathan-typanski) -------------------
+  (defun my/gptel-add-project-context ()
+    "Add files chosen from the current project to the gptel context."
+    (interactive)
+    (require 'gptel-context)
+    (let* ((proj (project-current t))
+           (root (project-root proj))
+           (files (mapcar (lambda (f) (file-relative-name f root))
+                          (project-files proj)))
+           (chosen (completing-read-multiple "Add to gptel context: " files)))
+      (dolist (f chosen)
+        (gptel-add-file (expand-file-name f root)))
+      (message "Added %d file(s) to gptel context" (length chosen))))
+  ;; --- On-demand commit summary (john-wiegley / karthink) -----------------
+  (defun my/gptel-commit-summary ()
+    "Draft a commit message from the staged diff and insert it at point.
+Meant for the `git-commit' buffer; calls the LLM on demand (not on every
+commit), so it costs a request only when you ask for it."
+    (interactive)
+    (require 'gptel)
+    (let ((diff (shell-command-to-string "git diff --cached --no-color")))
+      (if (string-blank-p diff)
+          (user-error "No staged changes to summarize")
+        (let ((pos (copy-marker (point))))
+          (message "Asking %s for a commit summary..." gptel-model)
+          (gptel-request diff
+            :system my/gptel-commit-system
+            :callback
+            (lambda (resp _info)
+              (if (stringp resp)
+                  (with-current-buffer (marker-buffer pos)
+                    (save-excursion (goto-char pos) (insert resp)))
+                (message "gptel commit summary failed"))))))))
   :bind (("C-c g"   . gptel)
          ("C-c RET" . gptel-send)
          :map project-prefix-map
-         ("a" . my/gptel-project))
+         ("a" . my/gptel-project)
+         ("A" . my/gptel-add-project-context))
+  :hook ((gptel-mode        . my/gptel-prose-setup)
+         (gptel-post-stream . gptel-auto-scroll))
   :custom
   (gptel-default-mode 'org-mode)
+  ;; Each Org subtree is its own conversation branch.
+  (gptel-org-branching-context t)
+  ;; Foldable turns: every prompt/response is its own Org heading.
+  (gptel-prompt-prefix-alist '((org-mode      . "** Prompt\n")
+                               (markdown-mode . "# ")
+                               (text-mode     . "# ")))
+  (gptel-response-prefix-alist '((org-mode      . "** Response\n")
+                                 (markdown-mode . "")
+                                 (text-mode     . "")))
   :config
   ;; Expose the per-project chat in the `C-x p p' dispatch menu.
   (add-to-list 'project-switch-commands '(my/gptel-project "AI chat" ?a) t)
+  ;; Jump to the end of each finished response.
+  (add-hook 'gptel-post-response-functions #'gptel-end-of-response)
+  ;; On-demand commit messages in the magit/git-commit buffer.
+  (with-eval-after-load 'git-commit
+    (define-key git-commit-mode-map (kbd "C-c M-g") #'my/gptel-commit-summary))
   (setq gptel-model   'claude-haiku-4.5
         gptel-backend (gptel-make-gh-copilot "Copilot")))
+
+;; Floating popups for gptel-quick (loaded on demand by gptel-quick itself).
+(use-package posframe
+  :ensure t
+  :defer t)
+
+;; One-shot "explain this" on any Embark target (symbol, region, URL, ...):
+;; `C-.' then `?'.  karthink's package; GitHub-only, so installed via `:vc'.
+(use-package gptel-quick
+  :vc (:url "https://github.com/karthink/gptel-quick.git")
+  :after embark                          ; only needs `embark-general-map' to exist;
+  :bind ( :map embark-general-map        ; gptel-quick `require's gptel itself
+          ("?" . gptel-quick))
+  :config
+  ;; Float the popup (posframe) and allow more time to press M-RET/M-w/+.
+  (setq gptel-quick-display 'posframe
+        gptel-quick-timeout 30))
