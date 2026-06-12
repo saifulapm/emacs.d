@@ -1247,12 +1247,22 @@ use\" error that crashes the daemon."
   :config
   (setq completion-at-point-functions '(cape-file)))
 
+;; DISABLED (kao): jump-to-char/line is covered by kao motions — `f'/`t',
+;; `/' search, and the `g' goto menu.  Drop the `:disabled' line to re-enable.
 (use-package avy
+  :disabled                              ; superseded by kao f/t, /, g
   :ensure t
   :bind (("C-:"   . avy-goto-char-timer)
          ("M-g g" . avy-goto-line)))
 
+;; DISABLED (kao): kao keeps the native region active for every multi-char
+;; selection in normal mode, so this active-region keymap (n/p/a/s/l/k/f …)
+;; would shadow kao's own keys — and its main job was hosting the
+;; multiple-cursors bindings, which kao's native multi-selections replace.
+;; Drop the `:disabled' line (and the ones in `replace'/`multiple-cursors'
+;; below, which bind into this map) to re-enable.
 (use-package region-bindings
+  :disabled                              ; conflicts with kao's live region
   :vc ( :url "https://gitlab.com/andreyorst/region-bindings.el.git"
         :branch "main"
         :rev :newest)
@@ -1264,20 +1274,34 @@ use\" error that crashes the daemon."
          ((elfeed-search-mode magit-mode mu4e-headers-mode)
           . region-bindings-off)))
 
+;; DISABLED (kao): these bindings live in `region-bindings-mode-map' (off,
+;; above), and kao covers the workflow natively — `s' select-regex +
+;; `<a-k>'/`<a-K>' keep/exclude matching selections.
 (use-package replace
+  :disabled                              ; map is off; kao s / <a-k> instead
   :bind ( :map region-bindings-mode-map
           ("k" . keep-lines)
           ("f" . flush-lines)))
 
+;; DISABLED (kao): phi-search existed as the multiple-cursors-compatible
+;; isearch; with mc gone there is nothing left for it to serve.
 (use-package phi-search
+  :disabled                              ; only needed by multiple-cursors
   :ensure t
   :defer t)
 
+;; DISABLED (kao): semantic expansion is covered by kao's object selections
+;; (`<a-i>'/`<a-a>' + w/s/p/b…) and `x' line expansion.
 (use-package expand-region
+  :disabled                              ; superseded by kao <a-i>/<a-a>/x
   :ensure t
   :bind ("C-=" . er/expand-region))
 
+;; DISABLED (kao): multi-cursor editing is kao's core model — `s' select
+;; regex in selections, `C'/`<a-C>' copy selection down/up, `<a-s>' split
+;; lines, `%' whole buffer, then edit all selections at once.
 (use-package multiple-cursors
+  :disabled                              ; superseded by kao multi-selections
   :ensure t
   :bind
   (("S-<mouse-1>" . mc/add-cursor-on-click)
@@ -1291,7 +1315,9 @@ use\" error that crashes the daemon."
    ("s" . mc/mark-all-in-region-regexp)
    ("l" . mc/edit-ends-of-lines)))
 
+;; DISABLED (kao): companion of `multiple-cursors' above.
 (use-package multiple-cursors-core
+  :disabled                              ; superseded by kao multi-selections
   :bind ( :map mc/keymap
           ("<return>" . nil)
           ("C-&" . mc/vertical-align-with-space)
@@ -1682,3 +1708,17 @@ commit), so it costs a request only when you ask for it."
   ;; Float the popup (posframe) and allow more time to press M-RET/M-w/+.
   (setq gptel-quick-display 'posframe
         gptel-quick-timeout 30))
+
+;; kao — faithful Kakoune editing model for Emacs.  Installed via `package-vc'
+;; from the GitHub repo (`:rev :newest' tracks the latest commit on main; run
+;; `M-x package-vc-upgrade RET kao' after pushing to pick up new work).  The
+;; dev working tree lives at ~/Sites/github/kao if you need `:load-path'
+;; loading back for in-progress testing.
+;; GLOBAL: `kao-global-mode' enables kao in editing buffers only — special
+;; modes, dired and the minibuffer stay native (D-61 self-insert heuristic).
+;; Insert state types normally, ESC returns to normal.  `SPC' is the D-60
+;; keypad: `SPC x f' = `C-x C-f', `SPC m x' = `M-x', other keys fall through
+;; to `kao-user-map' (`SPC #' comments, `SPC d'/`SPC r' xref).
+(use-package kao
+  :vc (:url "https://github.com/saifulapm/kao" :rev :newest)
+  :config (kao-global-mode 1))
