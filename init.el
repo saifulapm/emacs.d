@@ -1729,12 +1729,13 @@ Returns the position WITHOUT moving point — `kao-goto--dispatch' owns the
 actual move, so Replace `g w' collapses the selection at the target and
 Extend `G w' extends to it, like any other coord goto target.  A cancelled
 avy quits, aborting the dispatch (the jump was already pushed — harmless).
-`avy-all-windows' is bound off because a coord must live in THIS buffer;
+`avy-goto-word-0' labels every visible word start (no typing needed);
+`avy-all-windows' is bound off because a coord must live in THIS buffer —
 cross-window jumping stays on the global `C-:'."
     (let ((avy-all-windows nil))
       (save-excursion
         (let ((start (point))
-              (res (call-interactively #'avy-goto-char-timer)))
+              (res (call-interactively #'avy-goto-word-0)))
           (if (or res (/= (point) start))
               (point)
             (keyboard-quit))))))
