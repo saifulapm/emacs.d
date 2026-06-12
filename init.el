@@ -1278,11 +1278,10 @@ use\" error that crashes the daemon."
 ;; DISABLED (kao): these bindings live in `region-bindings-mode-map' (off,
 ;; above), and kao covers the workflow natively — `s' select-regex +
 ;; `<a-k>'/`<a-K>' keep/exclude matching selections.
-(use-package replace
-  :disabled                              ; map is off; kao s / <a-k> instead
-  :bind ( :map region-bindings-mode-map
-          ("k" . keep-lines)
-          ("f" . flush-lines)))
+;;(use-package replace
+;;  :bind ( :map region-bindings-mode-map
+;;          ("k" . keep-lines)
+;;          ("f" . flush-lines)))
 
 ;; DISABLED (kao): phi-search existed as the multiple-cursors-compatible
 ;; isearch; with mc gone there is nothing left for it to serve.
@@ -1291,12 +1290,40 @@ use\" error that crashes the daemon."
   :ensure t
   :defer t)
 
-;; DISABLED (kao): semantic expansion is covered by kao's object selections
-;; (`<a-i>'/`<a-a>' + w/s/p/b…) and `x' line expansion.
+;; Kept alongside kao for progressive semantic expansion (kao's `<a-i>'/`<a-a>'
+;; need a named object; er grows/shrinks step-wise).  kao adopts the resulting
+;; region as its selection via `kao-region-mark-commands' (D-64).  The wrappers
+;; do two things kao can't: (1) prime er with the kao-true EXCLUSIVE span —
+;; kao's D-10 mirror keeps the Emacs region one char short of the inclusive
+;; selection (the cursor char is block-rendered, not region-rendered), so raw
+;; er would re-pick the same unit forever; (2) `setq' `this-command' to the
+;; real er command, which keeps er's own last-command continuation logic
+;; (history, contract) working AND matches kao's adoption list.
 (use-package expand-region
-  :disabled                              ; superseded by kao <a-i>/<a-a>/x
   :ensure t
-  :bind ("C-=" . er/expand-region))
+  :preface
+  (defun my/kao--er-call (cmd)
+    "Prime the kao-true exclusive region, then delegate to er command CMD."
+    (when (and (bound-and-true-p kao--normal-active)
+               (not (bound-and-true-p kao--insert-active))
+               (bound-and-true-p kao--sels))
+      (let ((sel (kao--main-sel)))
+        (when (and sel (> (kao-sel-max sel) (kao-sel-min sel)))
+          (set-mark (kao-sel-min sel))
+          (goto-char (min (point-max) (1+ (kao-sel-max sel)))))))
+    (setq this-command cmd)
+    (call-interactively cmd))
+  (defun my/kao-expand-region ()
+    "`er/expand-region', kao-aware (M-RET)."
+    (interactive)
+    (my/kao--er-call #'er/expand-region))
+  (defun my/kao-shrink-region ()
+    "`er/contract-region', kao-aware (M-S-RET)."
+    (interactive)
+    (my/kao--er-call #'er/contract-region))
+  :bind (("M-<return>"   . my/kao-expand-region)
+         ("M-S-<return>" . my/kao-shrink-region)
+         ("C-="          . my/kao-expand-region)))
 
 ;; DISABLED (kao): multi-cursor editing is kao's core model — `s' select
 ;; regex in selections, `C'/`<a-C>' copy selection down/up, `<a-s>' split
@@ -1723,6 +1750,12 @@ commit), so it costs a request only when you ask for it."
 (use-package kao
   :vc (:url "https://github.com/saifulapm/kao" :rev :newest)
   :preface
+  ;; Declared special BEFORE the defun below: avy isn't loaded yet when this
+  ;; file is read, so without the declaration the `let' compiles LEXICAL —
+  ;; avy never sees the binding, and avy's own `defcustom' (autoloaded
+  ;; mid-`let' on first use) errors with "Defining as dynamic an already
+  ;; lexical var".
+  (defvar avy-all-windows)
   (defun my/kao--avy-goto-pos ()
     "Avy-pick a buffer position in the selected window, for kao's `g w'.
 Returns the position WITHOUT moving point — `kao-goto--dispatch' owns the
