@@ -1247,10 +1247,11 @@ use\" error that crashes the daemon."
   :config
   (setq completion-at-point-functions '(cape-file)))
 
-;; DISABLED (kao): jump-to-char/line is covered by kao motions — `f'/`t',
-;; `/' search, and the `g' goto menu.  Drop the `:disabled' line to re-enable.
+;; Kept alongside kao: `C-:' still jumps from any mode (the D-56 foreign-sync
+;; catch-all collapses the selection at the target), and in kao normal state
+;; `g w' is a helix-style goto-word — wired into kao's goto menu from the kao
+;; block at the bottom of this file.
 (use-package avy
-  :disabled                              ; superseded by kao f/t, /, g
   :ensure t
   :bind (("C-:"   . avy-goto-char-timer)
          ("M-g g" . avy-goto-line)))
@@ -1721,4 +1722,31 @@ commit), so it costs a request only when you ask for it."
 ;; to `kao-user-map' (`SPC #' comments, `SPC d'/`SPC r' xref).
 (use-package kao
   :vc (:url "https://github.com/saifulapm/kao" :rev :newest)
-  :config (kao-global-mode 1))
+  :preface
+  (defun my/kao--avy-goto-pos ()
+    "Avy-pick a buffer position in the selected window, for kao's `g w'.
+Returns the position WITHOUT moving point — `kao-goto--dispatch' owns the
+actual move, so Replace `g w' collapses the selection at the target and
+Extend `G w' extends to it, like any other coord goto target.  A cancelled
+avy quits, aborting the dispatch (the jump was already pushed — harmless).
+`avy-all-windows' is bound off because a coord must live in THIS buffer;
+cross-window jumping stays on the global `C-:'."
+    (let ((avy-all-windows nil))
+      (save-excursion
+        (let ((start (point))
+              (res (call-interactively #'avy-goto-char-timer)))
+          (if (or res (/= (point) start))
+              (point)
+            (keyboard-quit))))))
+  :config
+  (kao-global-mode 1)
+  ;; Helix-style `g w' — goto word via avy.  kao core keeps its goto menu
+  ;; pure-Kakoune (kao-keys.el: "extensions live in the user map"), so this
+  ;; extension lives here: one extra coord spec + its autoinfo row.  The
+  ;; defconsts reset on every kao-menu (re)load and this form re-runs then
+  ;; too, so the entry survives `package-vc-upgrade'; the `assq' guard only
+  ;; protects against double-eval within one load.
+  (with-eval-after-load 'kao-menu
+    (unless (assq ?w kao--goto-specs)
+      (push (list ?w 'coord #'my/kao--avy-goto-pos) kao--goto-specs)
+      (push '(?w . "word (avy)") kao--goto-info))))
