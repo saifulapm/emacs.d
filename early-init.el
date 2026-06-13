@@ -21,9 +21,9 @@
 ;;   fg-main "#ffffff"  (modus-vivendi default)
 ;; `ns-appearance' + `ns-transparent-titlebar' keep the macOS title
 ;; bar dark too — without them the bar paints light at launch.
-(setq-default default-frame-alist '((width . 132)   ; compact default; re-asserted in `setup-fonts'
-                                   (height . 36)     ; (daemon's first frame is born in Menlo, not Maple)
-                                   (tool-bar-lines . 0)
+;; No frame size set here — Emacs uses its native default and macOS owns the
+;; window geometry.  Only appearance params live in the alist.
+(setq-default default-frame-alist '((tool-bar-lines . 0)
                                    (vertical-scroll-bars . nil)
                                    (left-fringe . 8)
                                    (right-fringe . 8)
@@ -36,7 +36,6 @@
               initial-frame-alist default-frame-alist
 							use-short-answers t
               frame-background-mode 'dark
-              frame-inhibit-implied-resize t
               fringe-indicator-alist (assq-delete-all 'truncation fringe-indicator-alist))
 
 (unless (or (daemonp) noninteractive)
