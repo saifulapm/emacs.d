@@ -85,7 +85,14 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
    truncate-lines t
    bidi-paragraph-direction 'left-to-right
    bidi-inhibit-bpa t
-   frame-title-format "Emacs"
+   ;; Project-aware frame title (à la emacs-solo): show the project name when
+   ;; inside one, else the buffer name.
+   frame-title-format
+   '(:eval
+     (let ((project (project-current)))
+       (if project
+           (concat "Emacs - [p] " (project-name project))
+         (concat "Emacs - " (buffer-name)))))
    auto-window-vscroll nil
    mouse-highlight t
    hscroll-step 1
@@ -103,7 +110,9 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
    mode-line-percent-position nil
    redisplay-skip-fontification-on-input t
    fast-but-imprecise-scrolling t
-   enable-recursive-minibuffers t)
+   enable-recursive-minibuffers t
+   ;; Default 64KB throttles subprocess throughput; 1MB helps eglot/intelephense.
+   read-process-output-max (* 1024 1024))
   (provide 'defaults))
 
 (use-package jit-lock
@@ -111,6 +120,11 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
   (jit-lock-defer-time 0))
 
 (use-package window
+  ;; Native window-layout commands (Emacs 31+): `C-x w t' transpose, `C-x w r'
+  ;; rotate, `C-x w f h/v' flip — these replace the external `transpose-frame'
+  ;; package.  Keep the `C-x 4 t' muscle-memory key on the built-in transpose.
+  :bind ( :map ctl-x-4-map
+          ("t" . window-layout-transpose))
   :config
   (add-to-list 'display-buffer-alist '("\\*Calendar*" (display-buffer-at-bottom))))
 
@@ -122,14 +136,6 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
          ("S-<right>" . windmove-right)
          ("S-<up>"    . windmove-up)
          ("S-<down>"  . windmove-down)))
-
-;; Flip a two- (or many-) window layout between side-by-side and stacked.
-;; `transpose-frame' swaps the x and y axes -- the "vertical split <->
-;; horizontal split" toggle.  (Suite also has rotate-/flip-/flop-frame.)
-(use-package transpose-frame
-  :ensure t
-  :bind ( :map ctl-x-4-map
-          ("t" . transpose-frame)))
 
 (use-package mouse
   :hook (after-init . context-menu-mode)
@@ -385,7 +391,13 @@ when upgrading the package."
          ("M-S-z" . zap-to-char)
          ("C-x k" . kill-current-buffer)
          ("C-h C-f" . describe-face)
-         ([remap undo] . undo-only))
+         ([remap undo] . undo-only)
+         ;; dwim case ops: act on the region when active, else the next word
+         ("M-u" . upcase-dwim)
+         ("M-l" . downcase-dwim)
+         ("M-c" . capitalize-dwim)
+         ;; duplicate the current line, or the region when one is active
+         ("C-," . duplicate-dwim))
   :hook ((before-save . delete-trailing-whitespace)
          (overwrite-mode . overwrite-mode-set-cursor-shape)
          (after-init . column-number-mode)
@@ -398,6 +410,8 @@ when upgrading the package."
   (blink-matching-paren t)
   (copy-region-blink-delay 0)
   (shell-command-default-error-buffer "*Shell Command Errors*")
+  ;; C-u C-SPC, then C-SPC C-SPC… keeps popping the mark ring
+  (set-mark-command-repeat-pop t)
   :config
   (defun overwrite-mode-set-cursor-shape ()
     (when (display-graphic-p)
@@ -439,6 +453,10 @@ are defining or executing a macro."
   ;; (read-file-name-completion-ignore-case t)
   :custom-face
   (completions-first-difference ((t (:inherit unspecified)))))
+
+;; Show recursion depth in the prompt (you enable `enable-recursive-minibuffers').
+(use-package mb-depth
+  :hook (after-init . minibuffer-depth-indicate-mode))
 
 (use-package bindings
   :bind ( :map ctl-x-map
@@ -515,6 +533,8 @@ and pollutes daemon stderr."
   :bind ([remap list-buffers] . ibuffer))
 
 (use-package frame
+  ;; Frame-level "winner": `C-x 5 u' restores an accidentally-closed frame.
+  :hook (after-init . undelete-frame-mode)
   :bind (("C-z" . ignore)
          ("C-x C-z" . ignore)))
 
@@ -705,7 +725,12 @@ use\" error that crashes the daemon."
   (pixel-scroll-precision-use-momentum nil))
 
 (use-package paren
-  :hook (prog-mode . show-paren-mode))
+  :hook (prog-mode . show-paren-mode)
+  :custom
+  ;; When the matching opener is scrolled off-screen, echo its line in an
+  ;; overlay at the top of the window.
+  (show-paren-context-when-offscreen 'overlay)
+  (show-paren-style 'mixed))
 
 (use-package elec-pair
   :hook (prog-mode . electric-pair-local-mode))
@@ -774,7 +799,9 @@ use\" error that crashes the daemon."
   :delight eldoc-mode
   :defer t
   :custom
-  (eldoc-echo-area-use-multiline-p nil))
+  (eldoc-echo-area-use-multiline-p nil)
+  ;; Auto-show the symbol's doc / flymake diagnostic at point when idle.
+  (eldoc-help-at-pt t))
 
 (use-package treesit
   :custom
@@ -802,6 +829,12 @@ use\" error that crashes the daemon."
   ;; the front of the alist so it wins over the built-in default.
   (add-to-list 'eglot-server-programs
                '((php-mode phps-mode php-ts-mode) . ("intelephense" "--stdio"))))
+
+(use-package xref
+  ;; Use ripgrep for `xref-find-references' / `xref-find-apropos' (you already
+  ;; have rg via consult); much faster than the default grep on large trees.
+  :custom
+  (xref-search-program 'ripgrep))
 
 (use-package esh-mode
   :custom
@@ -966,6 +999,21 @@ use\" error that crashes the daemon."
   :custom
   (help-window-select t))
 
+;; Jump straight to the source of a command/key/variable/library — handy when
+;; editing this config or spelunking built-ins.
+(use-package find-func
+  :bind (("C-h M-k" . find-function-on-key)
+         ("C-h M-f" . find-function)
+         ("C-h M-v" . find-variable)
+         ("C-h M-l" . find-library)))
+
+;; Native word definitions (dict.org); complements jinx's spell-checking.
+(use-package dictionary
+  :bind ("C-c w" . dictionary-search)
+  :custom
+  (dictionary-server "dict.org")
+  (dictionary-use-single-buffer t))
+
 (use-package which-key
   :hook (after-init . which-key-mode)
   :delight which-key-mode
@@ -1043,10 +1091,14 @@ use\" error that crashes the daemon."
   (outline-minor-mode-cycle t))
 
 (use-package browse-url
-  :custom (browse-url-browser-function
-           (if (featurep 'xwidget-internal)
-               #'xwidget-webkit-browse-url
-             #'eww-browse-url)))
+  :custom
+  ;; Open links in the system default browser (`open' on macOS, the platform
+  ;; handler elsewhere).  eww stays a keystroke away via `M-x eww' /
+  ;; `M-x eww-browse-url'.
+  (browse-url-browser-function #'browse-url-default-browser)
+  ;; …and eww is the "secondary" browser, so anything offering an alternate-
+  ;; browser action (eww `&', elfeed, gnus, …) routes there.
+  (browse-url-secondary-browser-function #'eww-browse-url))
 
 (use-package goto-addr
   :hook ((prog-mode . goto-address-prog-mode)

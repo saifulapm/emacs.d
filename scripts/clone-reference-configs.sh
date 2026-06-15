@@ -92,6 +92,7 @@ phil-hagelberg|https://git.sr.ht/~technomancy/dotfiles|main
 protesilaos-stavrou|https://gitlab.com/protesilaos/dotfiles|master
 pythonnut|https://github.com/PythonNut/emacs-config|dev
 radon-rosborough|https://github.com/raxod502/radian|develop
+rahul-juliato|https://github.com/LionyxML/emacs-solo|main
 ryan-thompson|https://github.com/DarwinAwardWinner/dotemacs|talos
 sacha-chua|https://github.com/sachac/.emacs.d|gh-pages
 samuel-tonini|https://github.com/tonini/emacs.d|master
