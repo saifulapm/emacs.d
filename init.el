@@ -787,7 +787,11 @@ use\" error that crashes the daemon."
 
 (use-package magit
   :ensure t
-  :bind ("C-x g" . magit-status))
+  :bind ("C-x g" . magit-status)
+  :custom
+  ;; Don't warn when a diff has lines past `long-line-threshold' (50000 chars,
+  ;; e.g. minified assets/lockfiles); Magit just drops highlighting on them.
+  (magit-show-long-lines-warning nil))
 
 (use-package server
   :commands (server-running-p)
