@@ -142,6 +142,23 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
   :bind (("<mode-line> <mouse-2>" . nil)
          ("<mode-line> <mouse-3>" . nil)))
 
+(use-package no-blink-cursor
+  :no-require
+  ;; Solid, non-blinking cursor (pure-Kakoune feel; kao shows a box in normal
+  ;; state, a bar in insert).  `blink-cursor-mode' is ON by default.  Disabling
+  ;; it must NOT sit behind a `(window-system)' guard: a `--fg-daemon' has no
+  ;; window-system at init, so such a guard silently skips it (the bug — `M-x'
+  ;; worked only because a client frame existed by then).  Like the font setup
+  ;; below, emacsclient frames are created after startup, so re-assert on each
+  ;; server frame (when `M-x blink-cursor-mode' would take effect); `after-init'
+  ;; covers a non-daemon launch.
+  :hook ((after-init . my/disable-cursor-blink)
+         (server-after-make-frame . my/disable-cursor-blink))
+  :preface
+  (defun my/disable-cursor-blink (&rest _)
+    "Turn off `blink-cursor-mode' for a solid cursor."
+    (blink-cursor-mode -1)))
+
 (use-package font
   :no-require
   ;; In daemon mode `after-init-hook` fires before any frame exists, so
@@ -1292,50 +1309,129 @@ use\" error that crashes the daemon."
   :bind (("C-:"   . avy-goto-char-timer)
          ("M-g g" . avy-goto-line)))
 
-(use-package region-bindings
-  :vc ( :url "https://gitlab.com/andreyorst/region-bindings.el.git"
-        :branch "main"
-        :rev :newest)
-  :commands (region-bindings-mode)
-  :preface
-  (defun region-bindings-off ()
-    (region-bindings-mode -1))
-  :hook ((after-init . global-region-bindings-mode)
-         ((elfeed-search-mode magit-mode mu4e-headers-mode)
-          . region-bindings-off)))
+;; kao — faithful Kakoune modal-editing engine. Normal/insert states, native
+;; multi-selection, text objects, and registers. This supersedes the editing
+;; cluster that used to live here (multiple-cursors + multiple-cursors-core,
+;; phi-search, region-bindings + its keep/flush bindings, and expand-region) —
+;; all removed in favour of kao's native selection model. kao-global-mode is
+;; the autoloaded globalized entry; it already excludes the minibuffer,
+;; special/derived buffers, and terminals (ghostel) from modal editing.
+(use-package kao
+  :vc (:url "https://github.com/saifulapm/kao")
+  :demand t
+  :config
+  ;; --- Two clipboards, Kakoune-style --------------------------------------
+  ;; kao's own y / p / P stay PURELY INTERNAL — an Emacs kill-ring yank list,
+  ;; exactly like Kakoune's default `"' register.  Disabling the kill-ring <->
+  ;; system-clipboard sync stops every internal yank/paste from touching the
+  ;; macOS clipboard.  The macOS clipboard lives ONLY on SPC y / SPC p below
+  ;; (Kakoune's extra-yank-system / extra-paste-system = pbcopy / pbpaste).
+  (setq select-enable-clipboard nil
+        select-enable-primary nil)
 
-(use-package replace
-  :bind ( :map region-bindings-mode-map
-          ("k" . keep-lines)
-          ("f" . flush-lines)))
+  (defun my/kao-clipboard-copy ()
+    "Copy the active kao selection(s) to the macOS clipboard (Kakoune `SPC y').
+Newline-joins multiple selections and pipes them to pbcopy; the kill-ring and
+the buffer are left untouched (the `extra-yank-system' behaviour)."
+    (interactive)
+    (let* ((sels (kao-get-selections))
+           (text (mapconcat (lambda (s)
+                              (buffer-substring-no-properties
+                               (kao-sel-beg s) (kao-sel-end s)))
+                            sels "\n")))
+      (if (= (length text) 0)
+          (message "kao: nothing to copy")
+        (with-temp-buffer
+          (insert text)
+          (call-process-region (point-min) (point-max) "pbcopy"))
+        (message "Copied %d selection(s) to the system clipboard" (length sels)))))
 
-(use-package phi-search
-  :ensure t
-  :defer t)
+  (defun my/kao-clipboard-paste ()
+    "Paste the macOS clipboard after the selection(s) (Kakoune `SPC p').
+Reads pbpaste (the SYSTEM clipboard, not kao's internal register) and pastes it
+after each selection through kao's paste-after engine, restoring the internal
+default register afterwards (the `extra-paste-system' behaviour)."
+    (interactive)
+    (let ((clip (with-temp-buffer
+                  (call-process "pbpaste" nil t nil)
+                  (buffer-string))))
+      (if (= (length clip) 0)
+          (message "kao: system clipboard is empty")
+        (let ((saved (kao-register-get kao-register-default)))
+          (unwind-protect
+              (progn
+                (kao-register-set kao-register-default (list clip))
+                (kao-paste-after))
+            (kao-register-set kao-register-default saved))))))
 
-(use-package expand-region
-  :ensure t
-  :bind ("C-=" . er/expand-region))
+  (define-key kao-user-map "y" #'my/kao-clipboard-copy)
+  (define-key kao-user-map "p" #'my/kao-clipboard-paste)
 
-(use-package multiple-cursors
-  :ensure t
-  :bind
-  (("S-<mouse-1>" . mc/add-cursor-on-click)
-   :map region-bindings-mode-map
-   ("n" . mc/mark-next-symbol-like-this)
-   ("N" . mc/mark-next-like-this)
-   ("p" . mc/mark-previous-symbol-like-this)
-   ("P" . mc/mark-previous-like-this)
-   ("a" . mc/mark-all-symbols-like-this)
-   ("A" . mc/mark-all-like-this)
-   ("s" . mc/mark-all-in-region-regexp)
-   ("l" . mc/edit-ends-of-lines)))
+  ;; --- gw : jump to a word with avy (Kakoune `gw' = hop-kak-words) ---------
+  ;; kao's goto menu is a fixed spec table (`kao--goto-specs'), not a keymap,
+  ;; with no public registrar, so extend it directly.  `gw' runs avy then
+  ;; collapses the selection onto the landing point: kao's `g' dispatch is
+  ;; exempt from the avy-aware foreign-sync, so the jump must be adopted here
+  ;; or the post-command mirror snaps point back.
+  (defun my/kao-goto-word ()
+    "Jump to a word with avy, then collapse the kao selection there (`gw')."
+    (interactive)
+    (avy-goto-word-0 nil)
+    (when (bound-and-true-p kao-mode)
+      (kao-set-selections
+       (list (kao-sel-make :anchor (point) :cursor (point))))))
+  (add-to-list 'kao--goto-specs (list ?w 'command #'my/kao-goto-word) t)
+  (add-to-list 'kao--goto-info '(?w . "avy word") t)
 
-(use-package multiple-cursors-core
-  :bind ( :map mc/keymap
-          ("<return>" . nil)
-          ("C-&" . mc/vertical-align-with-space)
-          ("C-#" . mc/insert-numbers)))
+  ;; --- vs : select the visible part of the buffer -------------------------
+  ;; Kakoune's `select-view' (bound `v s'): there it zeroes scrolloff then
+  ;; `gtGbGl' (window-top -> extend window-bottom -> extend line-end).  Here we
+  ;; just span window-start..end-of-last-visible-line as one selection.  The
+  ;; view menu (`kao--view-table') is another fixed alist; entries are
+  ;; (KEY . FN) and FN is called with the count, so the fn takes an ignored arg.
+  (defun my/kao-select-view (&optional _n)
+    "Select the visible part of the buffer (Kakoune `select-view', `v s').
+Anchored at the first visible line; the cursor lands on the last FULLY
+visible line so the window does not scroll.  `window-end' counts a
+partially-visible bottom line, and mirroring the cursor onto it would pull
+point — and the view — down a line, so back up to the last whole line."
+    (interactive)
+    (when (kao-menu--displayed-p)
+      (let* ((beg (window-start))
+             (cursor
+              (save-excursion
+                (goto-char (min (point-max) (max beg (1- (window-end nil t)))))
+                (while (and (> (line-beginning-position) beg)
+                            (not (pos-visible-in-window-p (line-end-position))))
+                  (forward-line -1))
+                (line-end-position))))
+        (kao-set-selections
+         (list (kao-sel-make :anchor beg :cursor cursor))))))
+  (add-to-list 'kao--view-table (cons ?s #'my/kao-select-view) t)
+  (add-to-list 'kao--view-info '(?s . "select visible region") t)
+
+  ;; --- SPC , = buffers, SPC SPC = files (project-aware) -------------------
+  ;; Kakoune's `SPC ,' (buffer picker) and `SPC <space>' (file picker).  In a
+  ;; project narrow to it; otherwise the global commands.  Bound directly on the
+  ;; user map, so `this-command' is the finder itself and kao's foreign-sync
+  ;; adopts the buffer/file switch (same as the built-in `SPC d' = xref).
+  (defun my/kao-find-buffer ()
+    "Project buffers when in a project, else all buffers (Kakoune `SPC ,')."
+    (interactive)
+    (if (project-current) (consult-project-buffer) (consult-buffer)))
+  (defun my/kao-find-file ()
+    "Project files when in a project, else `find-file' (Kakoune `SPC SPC')."
+    (interactive)
+    (if (project-current) (project-find-file) (call-interactively #'find-file)))
+  (define-key kao-user-map "," #'my/kao-find-buffer)
+  (define-key kao-user-map (kbd "SPC") #'my/kao-find-file)
+
+  ;; `:' = eval-expression (Emacs `M-:').  kao rebinds `M-:' to Kakoune's `<a-:>'
+  ;; (kao-ensure-forward), which shadows the stock eval-expression; reclaim it on
+  ;; `:' (Kakoune's `:' is its command prompt, so this is the natural home).
+  (define-key kao-normal-state-map (kbd ":") #'eval-expression)
+
+  (kao-global-mode 1))
 
 (use-package vundo
   :ensure t
