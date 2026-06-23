@@ -1320,98 +1320,11 @@ use\" error that crashes the daemon."
   :vc (:url "https://github.com/saifulapm/kao")
   :demand t
   :config
-  ;; --- Two clipboards, Kakoune-style --------------------------------------
-  ;; kao's own y / p / P stay PURELY INTERNAL — an Emacs kill-ring yank list,
-  ;; exactly like Kakoune's default `"' register.  Disabling the kill-ring <->
-  ;; system-clipboard sync stops every internal yank/paste from touching the
-  ;; macOS clipboard.  The macOS clipboard lives ONLY on SPC y / SPC p below
-  ;; (Kakoune's extra-yank-system / extra-paste-system = pbcopy / pbpaste).
-  (setq select-enable-clipboard nil
-        select-enable-primary nil)
-
-  (defun my/kao-clipboard-copy ()
-    "Copy the active kao selection(s) to the macOS clipboard (Kakoune `SPC y').
-Newline-joins multiple selections and pipes them to pbcopy; the kill-ring and
-the buffer are left untouched (the `extra-yank-system' behaviour)."
-    (interactive)
-    (let* ((sels (kao-get-selections))
-           (text (mapconcat (lambda (s)
-                              (buffer-substring-no-properties
-                               (kao-sel-beg s) (kao-sel-end s)))
-                            sels "\n")))
-      (if (= (length text) 0)
-          (message "kao: nothing to copy")
-        (with-temp-buffer
-          (insert text)
-          (call-process-region (point-min) (point-max) "pbcopy"))
-        (message "Copied %d selection(s) to the system clipboard" (length sels)))))
-
-  (defun my/kao-clipboard-paste ()
-    "Paste the macOS clipboard after the selection(s) (Kakoune `SPC p').
-Reads pbpaste (the SYSTEM clipboard, not kao's internal register) and pastes it
-after each selection through kao's paste-after engine, restoring the internal
-default register afterwards (the `extra-paste-system' behaviour)."
-    (interactive)
-    (let ((clip (with-temp-buffer
-                  (call-process "pbpaste" nil t nil)
-                  (buffer-string))))
-      (if (= (length clip) 0)
-          (message "kao: system clipboard is empty")
-        (let ((saved (kao-register-get kao-register-default)))
-          (unwind-protect
-              (progn
-                (kao-register-set kao-register-default (list clip))
-                (kao-paste-after))
-            (kao-register-set kao-register-default saved))))))
-
-  (define-key kao-user-map "y" #'my/kao-clipboard-copy)
-  (define-key kao-user-map "p" #'my/kao-clipboard-paste)
-
-  ;; --- Cmd-c / Cmd-x / Cmd-v : the real macOS pasteboard ------------------
-  ;; The Mac port binds s-c/s-x/s-v to kill-ring-save/kill-region/yank, but with
-  ;; `select-enable-clipboard' nil (above) those touch ONLY the internal
-  ;; kill-ring — never the macOS pasteboard — so the Cmd keys behaved like a
-  ;; second internal y/p register.  Drive the CLIPBOARD selection directly so
-  ;; the Mac keys are the genuine system clipboard (same pasteboard as SPC y /
-  ;; SPC p), independent of `select-enable-clipboard' and without disturbing
-  ;; kao's registers or the kill-ring.
-  (defun my/system-clipboard-copy ()
-    "Copy the active region to the macOS pasteboard (Cmd-c)."
-    (interactive)
-    (if (use-region-p)
-        (progn
-          (gui-set-selection 'CLIPBOARD
-                             (buffer-substring-no-properties
-                              (region-beginning) (region-end)))
-          (setq deactivate-mark t)
-          (message "Copied to system clipboard"))
-      (message "No active region to copy")))
-
-  (defun my/system-clipboard-cut ()
-    "Cut the active region to the macOS pasteboard (Cmd-x)."
-    (interactive)
-    (if (use-region-p)
-        (let ((beg (region-beginning)) (end (region-end)))
-          (gui-set-selection 'CLIPBOARD
-                             (buffer-substring-no-properties beg end))
-          (delete-region beg end)
-          (message "Cut to system clipboard"))
-      (message "No active region to cut")))
-
-  (defun my/system-clipboard-paste ()
-    "Paste the macOS pasteboard at point, replacing any active region (Cmd-v)."
-    (interactive)
-    (let ((text (gui-get-selection 'CLIPBOARD)))
-      (if (and text (> (length text) 0))
-          (progn
-            (when (use-region-p)
-              (delete-region (region-beginning) (region-end)))
-            (insert-for-yank text))
-        (message "System clipboard is empty"))))
-
-  (define-key global-map [?\s-c] #'my/system-clipboard-copy)
-  (define-key global-map [?\s-x] #'my/system-clipboard-cut)
-  (define-key global-map [?\s-v] #'my/system-clipboard-paste)
+  ;; --- System clipboard ----------------------------------------------------
+  ;; kao's y / d / c / p ride the kill-ring; syncing the kill-ring with the
+  ;; macOS pasteboard makes every kao yank/paste use the system clipboard, and
+  ;; the Mac port's default Cmd-c / Cmd-x / Cmd-v ride the same pasteboard.
+  (setq select-enable-clipboard t)
 
   ;; --- gw : jump to a word with avy (Kakoune `gw' = hop-kak-words) ---------
   ;; kao's goto menu is a fixed spec table (`kao--goto-specs'), not a keymap,
@@ -1741,9 +1654,9 @@ output filter ghostel doesn't provide (it would hang)."
                        ("message" message)))
   ;; Let terminal programs (tmux, nvim, ssh, Claude Code) copy to the macOS
   ;; pasteboard via OSC 52.  ghostel writes it through `gui-set-selection
-  ;; 'CLIPBOARD' (plus `kill-new'), so it reaches the real pasteboard despite our
-  ;; `select-enable-clipboard' nil — same path as Cmd-c / SPC y.  Off by default
-  ;; for security: a rogue escape sequence in output could overwrite the clipboard.
+  ;; 'CLIPBOARD' (plus `kill-new'), so it reaches the real pasteboard.  Off by
+  ;; default for security: a rogue escape sequence in output could overwrite the
+  ;; clipboard.
   (ghostel-enable-osc52 t)
   :config
   ;; Expose `ghostel-project' in the `C-x p p' dispatch menu.
@@ -1767,18 +1680,6 @@ output filter ghostel doesn't provide (it would hang)."
 ;; of ghostel-compile above; autoloaded the same way, so this defers cleanly.
 (use-package ghostel-comint
   :hook (after-init . ghostel-comint-global-mode))
-
-;; kao-ghostel — kao modal editing inside ghostel terminals (the evil-ghostel
-;; analog; ships in the kao package).  `kao-global-mode' excludes ghostel from
-;; modal editing; this re-includes it.  In semi-char input mode kao's edit verbs
-;; (d c i a I A p P r R u) drive the shell line editor over the PTY on the main
-;; selection; selection / motion stay vanilla kao; outside semi-char (line / copy
-;; mode, alt-screen TUIs) everything falls through.  ESC routes terminal-vs-kao,
-;; readline Ctrl keys pass through (incl. C-r reverse-search) in insert state.
-;; See the package's docs/specs/kao-ghostel.md.
-(use-package kao-ghostel
-  :after (kao ghostel)
-  :hook (ghostel-mode . kao-ghostel-mode))
 
 (use-package gptel
   :ensure t
