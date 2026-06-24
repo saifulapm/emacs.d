@@ -1392,7 +1392,16 @@ use\" error that crashes the daemon."
   ;; target with no duplicate key); `gu' still does prev-display-line.  `gr'/`gy'
   ;; are free goto keys.
   (defun my/kao-goto--jump (command)
-    "Run COMMAND interactively, then collapse the kao selection at point."
+    "Push a kao jump for the pre-jump position, run COMMAND, then collapse.
+The jump push is what makes kao's `C-o' (`kao-jump-backward') return here:
+xref pushes only its OWN marker stack (recoverable with `M-,'), NOT kao's
+jump list (`kao--jumps'), so without this `gd'/`gr'/`gy' leave nothing for
+`C-o' to walk back to.  Faithful to Kakoune+kakoune-lsp, where `gd' is a jump
+on the jump list (`goto_commands' push_jump).  Captured BEFORE the jump,
+exactly like the coord targets in `kao-goto--dispatch' — kao's `command'-type
+goto specs deliberately skip the push (`kao-menu.el', the `'command' arm)."
+    (when (bound-and-true-p kao-mode)
+      (kao--jump-push))
     (call-interactively command)
     (when (bound-and-true-p kao-mode)
       (kao-set-selections
@@ -1466,14 +1475,28 @@ point — and the view — down a line, so back up to the last whole line."
   ;; the same job via another front-end, so it folds into this one key.
   (define-key kao-user-map "/" #'consult-ripgrep)
 
-  ;; --- SPC h/j/k/l = move to the window in that direction (vim/neovim style) --
-  ;; windmove already lives on `S-<arrow>' (see its package block); these add the
-  ;; leader-prefixed hjkl most vim users reach for.  Selecting another window is a
-  ;; foreign command kao's post-command sync adopts, so a plain bind suffices.
-  (define-key kao-user-map "h" #'windmove-left)
-  (define-key kao-user-map "j" #'windmove-down)
-  (define-key kao-user-map "k" #'windmove-up)
-  (define-key kao-user-map "l" #'windmove-right)
+  ;; --- SPC w = window sub-menu (ports my Kakoune `window' user-mode) ----------
+  ;; Kakoune maps `SPC w' to the windowing user-mode (window-ghostty/window-tmux):
+  ;; `h/l/k/j' move between panes, `s'/`v' split, `q' close.  Here the same keys
+  ;; drive Emacs windows (windmove + split/delete).  This frees the leader's
+  ;; `h/j/k/l' — they used to be direct windmove binds, with `SPC l' = windmove-
+  ;; right — so `SPC l' can now host the LSP menu below, matching kak's `SPC l' =
+  ;; lsp.  windmove still lives on `S-<arrow>' too (see its package block); window
+  ;; selection/splits are foreign commands kao's post-command sync adopts, so
+  ;; plain binds suffice.  Q/o/= are Emacs-natural bonuses (no kak analogue).
+  (defvar-keymap my/kao-window-map
+    :doc "Window commands, Kakoune-windowing-style (`SPC w')."
+    "h" #'windmove-left                  ; move left  (kak `h')
+    "j" #'windmove-down                  ; move down  (kak `j')
+    "k" #'windmove-up                    ; move up    (kak `k')
+    "l" #'windmove-right                 ; move right (kak `l')
+    "s" #'split-window-below             ; horizontal split (kak `s')
+    "v" #'split-window-right             ; vertical split   (kak `v')
+    "q" #'delete-window                  ; close this window (kak `q')
+    "Q" #'delete-other-windows           ; close the others (maximize)
+    "o" #'other-window                   ; cycle to next window
+    "=" #'balance-windows)               ; equalize window sizes
+  (define-key kao-user-map "w" `(menu-item "window" ,my/kao-window-map))
 
   ;; --- SPC b = buffers sub-menu (ports my Kakoune `buffers' user-mode) --------
   ;; A prefix keymap on the kao leader; which-key renders it as a labelled popup,
@@ -1514,14 +1537,15 @@ point — and the view — down a line, so back up to the last whole line."
     "o" #'my/kao-kill-other-buffers)   ; delete others (file buffers)
   (define-key kao-user-map "b" `(menu-item "buffers" ,my/kao-buffer-map))
 
-  ;; --- SPC c = code / LSP sub-menu (ports kakoune-lsp's `lsp' user-mode) ------
-  ;; kakoune-lsp uses `SPC l', but that's taken by `windmove-right' here, so the
-  ;; menu lives on `SPC c' (code).  `d'/`r' duplicate kao's built-in `SPC d'/
-  ;; `SPC r' (xref, from `kao-keys-user-alist') for a self-contained menu.
-  ;; Dropped from kak's table: j/k call-hierarchy, l code-lens, v selection-range
-  ;; (no eglot equivalent).  X/Q are bonus server-control keys.
+  ;; --- SPC l = LSP sub-menu (ports kakoune-lsp's `lsp' user-mode) -------------
+  ;; Faithful to kakoune-lsp, which maps `SPC l' to the `lsp' user-mode (my kak
+  ;; `map global user l :enter-user-mode lsp').  Now reachable on `SPC l' since
+  ;; window movement moved to the `SPC w' menu above.  `d'/`r' duplicate kao's
+  ;; built-in `SPC d'/`SPC r' (xref, from `kao-keys-user-alist') for a self-
+  ;; contained menu.  Dropped from kak's table: j/k call-hierarchy, l code-lens,
+  ;; v selection-range (no eglot equivalent).  X/Q are bonus server-control keys.
   (defvar-keymap my/kao-lsp-map
-    :doc "Code / LSP commands, Kakoune-lsp-style (`SPC c')."
+    :doc "LSP commands, Kakoune-lsp-style (`SPC l')."
     "a" #'eglot-code-actions          ; code actions
     "d" #'xref-find-definitions       ; definition (also SPC d)
     "r" #'xref-find-references        ; references (also SPC r)
@@ -1537,7 +1561,7 @@ point — and the view — down a line, so back up to the last whole line."
     "p" #'flymake-goto-prev-error     ; prev error
     "X" #'eglot-reconnect             ; restart server
     "Q" #'eglot-shutdown)             ; shutdown server
-  (define-key kao-user-map "c" `(menu-item "code/lsp" ,my/kao-lsp-map))
+  (define-key kao-user-map "l" `(menu-item "lsp" ,my/kao-lsp-map))
 
   ;; --- SPC f = files / find sub-menu (ports my Kakoune `picker' user-mode) ----
   ;; Kakoune's picker mode is many fuzzy-finder front-ends (fzf/sk/zf/swiper/lf)
