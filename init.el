@@ -897,11 +897,11 @@ use\" error that crashes the daemon."
 
 (use-package dired
   :bind ( :map dired-mode-map
-          ("<backspace>" . dired-up-directory)
-          ("M-<up>" . dired-up-directory)
           ("~" . dired-home-directory)
           ("C-c l" . org-store-link)
-          ("h" . dired-toggle-dotfiles)
+          ("<backspace>" . dired-up-directory)
+          ("h" . dired-up-directory)
+          ("l" . dired-find-file)
           ;; kao-style row navigation: j/k move down/up (what n/p do); the
           ;; default j/k shift up to J/K so nothing is lost.
           ("j" . dired-next-line)
