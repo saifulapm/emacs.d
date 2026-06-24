@@ -67,6 +67,9 @@
 
 (when (featurep 'native-compile)
   (setopt native-comp-async-report-warnings-errors 'silent)
+  ;; Pause background native-compilation while on battery, so an unplugged
+  ;; laptop doesn't get surprise fan spin-ups from async comp jobs (Emacs 31+).
+  (setopt native-comp-async-on-battery-power nil)
   ;; emacs-plus links libgccjit against Homebrew gcc, whose internal
   ;; lib dir (containing libemutls_w.a) isn't on ld's default search
   ;; path.  Without LIBRARY_PATH, runtime trampoline compiles fail

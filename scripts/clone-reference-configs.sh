@@ -39,17 +39,21 @@ else
   C_RESET=""; C_DIM=""; C_GREEN=""; C_RED=""; C_BLUE=""
 fi
 
-# Repo list — one per line: name|git-url|branch
+# Repo list — one per line: name|git-url|branch[|subdir]
 # Sorted alphabetically by name. The `dmacs` entry pulls a separate branch
 # of the same repo as `daniel-kraus` (Daniel's macOS-flavoured branch).
-# `andrew_emacs` is the entire andreyorst/dotfiles monorepo; the emacs config
-# lives at .config/emacs/ inside it.
+# An optional 4th `subdir` field triggers a sparse clone that fetches only that
+# path out of a larger monorepo/dotfiles repo — used for the entries whose emacs
+# config lives in a subdirectory (andrew_emacs, boris-buliga, ivan-malison,
+# joe-di-castro, phil-hagelberg, protesilaos-stavrou, radon-rosborough,
+# syohei-yoshida, taichi-kawabata, xenodium).
 REPOS=$(cat <<'EOF'
 aaron-culich|https://github.com/aculich/.emacs.d|master
 alain-lafon|https://github.com/munen/emacs.d|master
 alex-kost|https://github.com/alezost/emacs-config|master
-andrew_emacs|https://gitlab.com/andreyorst/dotfiles|master
+andrew_emacs|https://gitlab.com/andreyorst/dotfiles|master|.config/emacs
 bailey-ling|https://github.com/bling/dotemacs|master
+boris-buliga|https://github.com/d12frosted/environment|master|emacs
 chen-bin|https://github.com/redguardtoo/emacs.d|master
 chris-barrett|https://github.com/chrisbarrett/.emacs.d|master
 christopher-wellons|https://github.com/skeeto/.emacs.d|master
@@ -61,15 +65,14 @@ dmytro-lispyvnyi|https://github.com/a13/emacs.d|master
 enzuru|https://github.com/enzuru/.emacs.d|master
 howard-abrams|https://github.com/howardabrams/dot-files|master
 ista-zahn|https://github.com/izahn/dotemacs|master
-ivan-malison|https://github.com/IvanMalison/dotfiles|master
+ivan-malison|https://github.com/IvanMalison/dotfiles|master|dotfiles/emacs.d
 jason-milkins|https://github.com/ocodo/.emacs.d|master
 jay-dixit|https://github.com/incandescentman/Emacs-Settings|master
 jim-myhrberg|https://github.com/jimeh/.emacs.d|master
-joe-di-castro|https://github.com/joedicastro/dotfiles|master
+joe-di-castro|https://github.com/joedicastro/dotfiles|master|emacs
 john-wiegley|https://github.com/jwiegley/dot-emacs|master
 joost-diepenmaat|https://github.com/joodie/emacs-literal-config|master
 jordon-biondo|https://github.com/jordonbiondo/.emacs.d|master
-jorgen-schaefer|https://github.com/jorgenschaefer/Config|master
 julien-fantin|https://github.com/julienfantin/.emacs.d|master
 junpeng-qiu|https://github.com/cute-jumper/.emacs.d|master
 justin-talbott|https://github.com/waymondo/hemacs|main
@@ -88,25 +91,25 @@ nicholas-vollmer|https://github.com/progfolio/.emacs.d|master
 nicolas-petton|https://github.com/NicolasPetton/emacs.d|master
 oleh-krehel|https://github.com/abo-abo/oremacs|github
 ono-hiroko|https://github.com/kuanyui/.emacs.d|master
-phil-hagelberg|https://git.sr.ht/~technomancy/dotfiles|main
-protesilaos-stavrou|https://gitlab.com/protesilaos/dotfiles|master
+phil-hagelberg|https://git.sr.ht/~technomancy/dotfiles|main|.emacs.d
+protesilaos-stavrou|https://gitlab.com/protesilaos/dotfiles|master|emacs
 pythonnut|https://github.com/PythonNut/emacs-config|dev
-radon-rosborough|https://github.com/raxod502/radian|develop
+radon-rosborough|https://github.com/raxod502/radian|develop|emacs
 rahul-juliato|https://github.com/LionyxML/emacs-solo|main
 ryan-thompson|https://github.com/DarwinAwardWinner/dotemacs|talos
 sacha-chua|https://github.com/sachac/.emacs.d|gh-pages
 samuel-tonini|https://github.com/tonini/emacs.d|master
 steckerhalter|https://github.com/marcwebbie/steckemacs.el|master
 steve-purcell|https://github.com/purcell/emacs.d|main
-syohei-yoshida|https://github.com/syohex/dot_files|main
-taichi-kawabata|https://github.com/kawabata/dotfiles|master
+syohei-yoshida|https://github.com/syohex/dot_files|main|emacs
+taichi-kawabata|https://github.com/kawabata/dotfiles|master|.emacs.d
 tecosaur|https://github.com/tecosaur/emacs-config|master
 terencio-agozzino|https://github.com/rememberYou/.emacs.d|master
 thierry-volpiatto|https://github.com/thierryvolpiatto/emacs-config|main
 tianxiang-xiong|https://github.com/xiongtx/.emacs.d|master
 vasilij-schneidermann|https://depp.brause.cc/dotemacs.git|master
 wilfred-hughes|https://github.com/Wilfred/.emacs.d|gh-pages
-xenodium|https://github.com/xenodium/dotsies|main
+xenodium|https://github.com/xenodium/dotsies|main|emacs
 yuta-yamada|https://github.com/yuutayamada/emacs.d|master
 EOF
 )
@@ -122,14 +125,26 @@ printf "%b  repos: %s%b\n\n" "$C_DIM" "$total" "$C_RESET"
 
 # Per-repo clone (used both serially and in parallel)
 clone_one() {
-  local name="$1" url="$2" branch="$3"
+  local name="$1" url="$2" branch="$3" subdir="${4:-}"
   local target="$DEST/$name"
   if [ -d "$target/.git" ]; then
     printf "%b  ↷ skip %-26s (exists)%b\n" "$C_DIM" "$name" "$C_RESET"
     return 0
   fi
-  if git clone $CLONE_FLAGS --branch "$branch" "$url" "$target" \
-       >/dev/null 2>"$target.err"; then
+
+  local ok=1
+  if [ -n "$subdir" ]; then
+    # Sparse clone — fetch only $subdir out of a larger monorepo.
+    git clone $CLONE_FLAGS --filter=blob:none --sparse --branch "$branch" \
+         "$url" "$target" >/dev/null 2>"$target.err" \
+      && git -C "$target" sparse-checkout set "$subdir" >>"$target.err" 2>&1 \
+      || ok=0
+  else
+    git clone $CLONE_FLAGS --branch "$branch" "$url" "$target" \
+         >/dev/null 2>"$target.err" || ok=0
+  fi
+
+  if [ "$ok" = "1" ]; then
     rm -f "$target.err"
     printf "%b  ✓ %-28s %s%b\n" "$C_GREEN" "$name" "$branch" "$C_RESET"
     return 0
@@ -150,8 +165,8 @@ export DEST CLONE_FLAGS C_RESET C_DIM C_GREEN C_RED
 # we cap with JOBS.
 printf "%s\n" "$REPOS" | grep -v '^$' \
   | xargs -P "$JOBS" -I{} bash -c '
-      IFS="|" read -r name url branch <<< "{}"
-      clone_one "$name" "$url" "$branch"
+      IFS="|" read -r name url branch subdir <<< "{}"
+      clone_one "$name" "$url" "$branch" "$subdir"
     '
 
 # Final summary

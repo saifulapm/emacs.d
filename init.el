@@ -429,6 +429,11 @@ when upgrading the package."
   (shell-command-default-error-buffer "*Shell Command Errors*")
   ;; C-u C-SPC, then C-SPC C-SPC… keeps popping the mark ring
   (set-mark-command-repeat-pop t)
+  ;; C-w with no active region kills the previous word instead of erroring
+  ;; (Emacs 31+).  Only affects insert-state C-w; kao's modal d/c are untouched.
+  (kill-region-dwim 'emacs-word)
+  ;; After `delete-pair', push a mark so C-x C-x selects what was inside (Emacs 31+).
+  (delete-pair-push-mark t)
   :config
   (defun overwrite-mode-set-cursor-shape ()
     (when (display-graphic-p)
@@ -547,7 +552,10 @@ and pollutes daemon stderr."
   (provide 'mode-line))
 
 (use-package ibuffer
-  :bind ([remap list-buffers] . ibuffer))
+  :bind ([remap list-buffers] . ibuffer)
+  :custom
+  ;; Show buffer sizes as KB/MB instead of raw byte counts (Emacs 31+).
+  (ibuffer-human-readable-size t))
 
 (use-package frame
   ;; Frame-level "winner": `C-x 5 u' restores an accidentally-closed frame.
@@ -822,7 +830,10 @@ use\" error that crashes the daemon."
   :custom
   (eldoc-echo-area-use-multiline-p nil)
   ;; Auto-show the symbol's doc / flymake diagnostic at point when idle.
-  (eldoc-help-at-pt t))
+  (eldoc-help-at-pt t)
+  ;; When a *eldoc* doc buffer is showing, prefer it over the echo area so
+  ;; spelunking unfamiliar code stays in the richer view (Emacs 31+).
+  (eldoc-echo-area-prefer-doc-buffer t))
 
 (use-package treesit
   :custom
@@ -844,12 +855,23 @@ use\" error that crashes the daemon."
   (eglot-sync-connect nil)       ; don't block UI while connecting
   (eglot-extend-to-xref t)       ; xref jumps may leave the project
   (eglot-events-buffer-config '(:size 0 :format short)) ; silence event log
+  ;; Suppress the inline "code action available here" hints (Emacs 31+); some
+  ;; servers (e.g. intelephense) make them noisy.  Actions still run via
+  ;; `eglot-code-actions' / M-x.
+  (eglot-code-action-indications nil)
   :config
   ;; Eglot's default PHP entry tries phpactor / felixfbecker — override to
   ;; use intelephense (installed via `pnpm i -g intelephense'). Pushed to
   ;; the front of the alist so it wins over the built-in default.
   (add-to-list 'eglot-server-programs
                '((php-mode phps-mode php-ts-mode) . ("intelephense" "--stdio"))))
+
+(use-package consult-eglot
+  :ensure t
+  ;; Incremental project-wide symbol search (`consult-eglot-symbols'); the
+  ;; eglot/consult bridge for kakoune-lsp's `o' = lsp-workspace-symbol-incr.
+  ;; Reached via the `SPC c o' code menu (see the kao block).
+  :after eglot)
 
 (use-package xref
   ;; Use ripgrep for `xref-find-references' / `xref-find-apropos' (you already
@@ -879,7 +901,13 @@ use\" error that crashes the daemon."
           ("M-<up>" . dired-up-directory)
           ("~" . dired-home-directory)
           ("C-c l" . org-store-link)
-          ("h" . dired-toggle-dotfiles))
+          ("h" . dired-toggle-dotfiles)
+          ;; kao-style row navigation: j/k move down/up (what n/p do); the
+          ;; default j/k shift up to J/K so nothing is lost.
+          ("j" . dired-next-line)
+          ("k" . dired-previous-line)
+          ("J" . dired-goto-file)        ; was `j'
+          ("K" . dired-do-kill-lines))   ; was `k'
   :functions (dired-current-directory)
   :hook (dired-mode . dired-hide-details-mode)
   :preface
@@ -903,6 +931,8 @@ use\" error that crashes the daemon."
   (dired-vc-rename-file t)                      ; renames go through VC so history follows
   (dired-create-destination-dirs 'ask)         ; offer to mkdir missing copy/move targets
   (dired-clean-confirm-killing-deleted-buffers nil)
+  ;; Drop the absolute directory path from the header under hide-details (Emacs 31+).
+  (dired-hide-details-hide-absolute-location t)
   :config
   (defun dired-home-directory ()
     (interactive)
@@ -1068,6 +1098,17 @@ use\" error that crashes the daemon."
   (flymake-mode-line-lighter "FlyM")
   :config
   (setq elisp-flymake-byte-compile-load-path (cons "./" load-path)))
+
+(use-package markdown-ts-mode
+  ;; Built-in (Emacs 31+) but experimental, so upstream doesn't wire it to
+  ;; `auto-mode-alist' yet — do it here so `.md'/`.markdown' open in it: live
+  ;; code-block fontification via each language's real major mode, Org-like
+  ;; heading navigation/folding, and inline image rendering.  This is also what
+  ;; activates the `markdown-ts-mode' entry in the jinx hook below (otherwise
+  ;; dead).  First open prompts to install the markdown tree-sitter grammar via
+  ;; your `treesit-auto-install-grammar' setting.
+  :mode (("\\.md\\'" . markdown-ts-mode)
+         ("\\.markdown\\'" . markdown-ts-mode)))
 
 (use-package jinx
   :ensure t
@@ -1342,6 +1383,36 @@ use\" error that crashes the daemon."
   (add-to-list 'kao--goto-specs (list ?w 'command #'my/kao-goto-word) t)
   (add-to-list 'kao--goto-info '(?w . "avy word") t)
 
+  ;; --- gd/gr/gy : kakoune-lsp goto bindings on kao's `g' menu ----------------
+  ;; Faithful to kakoune-lsp (`gd' definition, `gr' references, `gy' type-def).
+  ;; kao's `g' dispatch is exempt from foreign-sync (the same reason `gw' above
+  ;; collapses by hand), so each wrapper adopts the jump via `kao-set-selections'
+  ;; or the post-command mirror snaps point back.  `gd' OVERRIDES kao's
+  ;; display-line-down motion (in-place `setcdr', so `assq' dispatch picks the new
+  ;; target with no duplicate key); `gu' still does prev-display-line.  `gr'/`gy'
+  ;; are free goto keys.
+  (defun my/kao-goto--jump (command)
+    "Run COMMAND interactively, then collapse the kao selection at point."
+    (call-interactively command)
+    (when (bound-and-true-p kao-mode)
+      (kao-set-selections
+       (list (kao-sel-make :anchor (point) :cursor (point))))))
+  (defun my/kao-goto-definition ()
+    "Go to definition, collapsing the selection (`gd')."
+    (interactive) (my/kao-goto--jump #'xref-find-definitions))
+  (defun my/kao-goto-references ()
+    "List references, collapsing the selection (`gr')."
+    (interactive) (my/kao-goto--jump #'xref-find-references))
+  (defun my/kao-goto-type-definition ()
+    "Go to type definition, collapsing the selection (`gy')."
+    (interactive) (my/kao-goto--jump #'eglot-find-typeDefinition))
+  (setcdr (assq ?d kao--goto-specs) (list 'command #'my/kao-goto-definition))
+  (setcdr (assq ?d kao--goto-info) "definition")
+  (add-to-list 'kao--goto-specs (list ?r 'command #'my/kao-goto-references) t)
+  (add-to-list 'kao--goto-info '(?r . "references") t)
+  (add-to-list 'kao--goto-specs (list ?y 'command #'my/kao-goto-type-definition) t)
+  (add-to-list 'kao--goto-info '(?y . "type definition") t)
+
   ;; --- vs : select the visible part of the buffer -------------------------
   ;; Kakoune's `select-view' (bound `v s'): there it zeroes scrolloff then
   ;; `gtGbGl' (window-top -> extend window-bottom -> extend line-end).  Here we
@@ -1382,8 +1453,133 @@ point — and the view — down a line, so back up to the last whole line."
     "Project files when in a project, else `find-file' (Kakoune `SPC SPC')."
     (interactive)
     (if (project-current) (project-find-file) (call-interactively #'find-file)))
+  (defun my/kao-find-dired ()
+    "Dired the project root when in a project, else `dired' (Kakoune `SPC e')."
+    (interactive)
+    (if (project-current) (project-dired) (call-interactively #'dired)))
   (define-key kao-user-map "," #'my/kao-find-buffer)
   (define-key kao-user-map (kbd "SPC") #'my/kao-find-file)
+  (define-key kao-user-map "e" #'my/kao-find-dired)
+  ;; `SPC /' = project-wide live grep (Kakoune `SPC /' = live-grep).  consult-
+  ;; ripgrep searches the project root when in one, else `default-directory'; a
+  ;; prefix arg prompts for the directory.  Kakoune's `SPC \\' (sk-live-grep) is
+  ;; the same job via another front-end, so it folds into this one key.
+  (define-key kao-user-map "/" #'consult-ripgrep)
+
+  ;; --- SPC h/j/k/l = move to the window in that direction (vim/neovim style) --
+  ;; windmove already lives on `S-<arrow>' (see its package block); these add the
+  ;; leader-prefixed hjkl most vim users reach for.  Selecting another window is a
+  ;; foreign command kao's post-command sync adopts, so a plain bind suffices.
+  (define-key kao-user-map "h" #'windmove-left)
+  (define-key kao-user-map "j" #'windmove-down)
+  (define-key kao-user-map "k" #'windmove-up)
+  (define-key kao-user-map "l" #'windmove-right)
+
+  ;; --- SPC b = buffers sub-menu (ports my Kakoune `buffers' user-mode) --------
+  ;; A prefix keymap on the kao leader; which-key renders it as a labelled popup,
+  ;; the Emacs analog of Kakoune's user-mode menu.  `D'/`o' act on file-visiting
+  ;; buffers only, so they spare *scratch*/*Messages*/dired/magit/ghostel, and
+  ;; `kill-buffer' still prompts before discarding any unsaved file.
+  (defun my/kao-kill-file-buffers ()
+    "Kill all file-visiting buffers (Kakoune `SPC b D')."
+    (interactive)
+    (when (yes-or-no-p "Kill all file buffers? ")
+      (let ((n 0))
+        (dolist (buf (buffer-list))
+          (when (and (buffer-file-name buf) (kill-buffer buf))
+            (setq n (1+ n))))
+        (message "Killed %d file buffer(s)" n))))
+  (defun my/kao-kill-other-buffers ()
+    "Kill all OTHER file-visiting buffers, keeping the current one (Kakoune `SPC b o')."
+    (interactive)
+    (when (yes-or-no-p "Kill other file buffers? ")
+      (let ((cur (current-buffer)) (n 0))
+        (dolist (buf (buffer-list))
+          (when (and (buffer-file-name buf) (not (eq buf cur)) (kill-buffer buf))
+            (setq n (1+ n))))
+        (message "Killed %d other file buffer(s)" n))))
+  (defvar-keymap my/kao-buffer-map
+    :doc "Buffer commands, Kakoune-style (`SPC b')."
+    "a" #'mode-line-other-buffer       ; alternate ↔ (last buffer)
+    "b" #'consult-buffer               ; switch / find
+    "n" #'next-buffer                  ; next →
+    "p" #'previous-buffer              ; previous ←
+    "d" #'kill-current-buffer          ; delete
+    "r" #'rename-buffer                ; rename
+    "s" #'scratch-buffer               ; *scratch*
+    "u" #'view-echo-area-messages      ; *Messages* (Emacs' *debug*)
+    "i" #'ibuffer                      ; rich list
+    "c" #'gptel                        ; AI chat
+    "D" #'my/kao-kill-file-buffers     ; delete all (file buffers)
+    "o" #'my/kao-kill-other-buffers)   ; delete others (file buffers)
+  (define-key kao-user-map "b" `(menu-item "buffers" ,my/kao-buffer-map))
+
+  ;; --- SPC c = code / LSP sub-menu (ports kakoune-lsp's `lsp' user-mode) ------
+  ;; kakoune-lsp uses `SPC l', but that's taken by `windmove-right' here, so the
+  ;; menu lives on `SPC c' (code).  `d'/`r' duplicate kao's built-in `SPC d'/
+  ;; `SPC r' (xref, from `kao-keys-user-alist') for a self-contained menu.
+  ;; Dropped from kak's table: j/k call-hierarchy, l code-lens, v selection-range
+  ;; (no eglot equivalent).  X/Q are bonus server-control keys.
+  (defvar-keymap my/kao-lsp-map
+    :doc "Code / LSP commands, Kakoune-lsp-style (`SPC c')."
+    "a" #'eglot-code-actions          ; code actions
+    "d" #'xref-find-definitions       ; definition (also SPC d)
+    "r" #'xref-find-references        ; references (also SPC r)
+    "i" #'eglot-find-implementation   ; implementation
+    "y" #'eglot-find-typeDefinition   ; type definition
+    "R" #'eglot-rename                ; rename
+    "f" #'eglot-format                ; format (region or buffer)
+    "h" #'eldoc-doc-buffer            ; hover
+    "s" #'consult-imenu               ; document symbols
+    "o" #'consult-eglot-symbols       ; workspace symbols
+    "e" #'consult-flymake             ; diagnostics list
+    "n" #'flymake-goto-next-error     ; next error
+    "p" #'flymake-goto-prev-error     ; prev error
+    "X" #'eglot-reconnect             ; restart server
+    "Q" #'eglot-shutdown)             ; shutdown server
+  (define-key kao-user-map "c" `(menu-item "code/lsp" ,my/kao-lsp-map))
+
+  ;; --- SPC f = files / find sub-menu (ports my Kakoune `picker' user-mode) ----
+  ;; Kakoune's picker mode is many fuzzy-finder front-ends (fzf/sk/zf/swiper/lf)
+  ;; for the same jobs; here they collapse into consult, plus the file operations
+  ;; a files menu wants.  `y' reuses `my/project-copy-relative-path' (project block).
+  (defun my/find-changed-file ()
+    "Pick a git-changed (modified or untracked) file in the repo and open it.
+Ports Kakoune's `open_changed_file_picker' (`SPC f m')."
+    (interactive)
+    (let* ((root (or (vc-root-dir) (user-error "Not inside a Git repository")))
+           (default-directory root)
+           (files (delete-dups
+                   (split-string
+                    (shell-command-to-string
+                     "git diff --name-only HEAD; git ls-files --others --exclude-standard")
+                    "\n" t))))
+      (unless files (user-error "No changed files"))
+      (find-file (expand-file-name (completing-read "Changed file: " files nil t) root))))
+  (defun my/delete-file-and-buffer ()
+    "Delete the current file (to trash) and kill its buffer (`SPC f D')."
+    (interactive)
+    (let ((file (buffer-file-name)))
+      (unless file (user-error "Buffer is not visiting a file"))
+      (when (yes-or-no-p (format "Delete %s? " (abbreviate-file-name file)))
+        (delete-file file t)
+        (kill-buffer)
+        (message "Deleted %s" (abbreviate-file-name file)))))
+  (defvar-keymap my/kao-file-map
+    :doc "File / find commands, Kakoune-picker-style (`SPC f')."
+    "f" #'find-file                      ; find file
+    "p" #'project-find-file              ; project file picker
+    "r" #'consult-recent-file            ; recent files
+    "l" #'consult-line                   ; line picker
+    "g" #'consult-ripgrep                ; grep project
+    "e" #'dired-jump                     ; explorer (dired here)
+    "m" #'my/find-changed-file           ; git-changed file
+    "s" #'save-buffer                    ; save
+    "S" #'save-some-buffers              ; save all
+    "R" #'rename-visited-file            ; rename current file
+    "D" #'my/delete-file-and-buffer      ; delete current file
+    "y" #'my/project-copy-relative-path) ; copy file path
+  (define-key kao-user-map "f" `(menu-item "files" ,my/kao-file-map))
 
   ;; `:' = eval-expression (Emacs `M-:').  kao rebinds `M-:' to Kakoune's `<a-:>'
   ;; (kao-ensure-forward), which shadows the stock eval-expression; reclaim it on
