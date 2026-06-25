@@ -1635,6 +1635,22 @@ Ports Kakoune's `open_changed_file_picker' (`SPC f m')."
   ;; regex tag in non-tree-sitter buffers.  Guarded like the modules above.
   (when (require 'kao-surround nil t)
     (kao-surround-setup t))
+  ;; kao-treesit — Helix-style tree-sitter text objects + syntax-aware tree
+  ;; motions (I use *-ts-mode widely).  Pin the query path to my kak runtime
+  ;; corpus: the ~/.config/helix symlink is sparse, the kak runtime is the full
+  ;; version-proof set (config-first, so my own overrides still win).  Arg t
+  ;; binds the `SPC t' tree menu (object select f/F c/C a/A o T; motions
+  ;; s P i ] [ n p; e/E expand-shrink, also top-level `<a-RET>'/`<a-S-RET>';
+  ;; `*' `/' `?' `t' = all-functions / filter / scopes / explore) AND the
+  ;; object-pending keys `<a-{a,i,A}>f' (function) + augmented `<a-{a,i,A}>u'
+  ;; (parameter, falling back to the regex argument object).  Gated on a loaded
+  ;; parser; degrades to the regex objects.  Guarded like the modules above (run
+  ;; `M-x package-vc-upgrade RET kao' to pull a build that ships kao-treesit).
+  (when (require 'kao-treesit nil t)
+    (setq kao-treesit-queries-dir
+          '("~/.config/helix/runtime/queries"
+            "/usr/local/share/kak/runtime/queries"))
+    (kao-treesit-setup t))
 
   (kao-global-mode 1))
 
