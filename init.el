@@ -755,7 +755,15 @@ use\" error that crashes the daemon."
   ;; When the matching opener is scrolled off-screen, echo its line in an
   ;; overlay at the top of the window.
   (show-paren-context-when-offscreen 'overlay)
-  (show-paren-style 'mixed))
+  (show-paren-style 'mixed)
+  :config
+  ;; `show-paren-mode' is ON globally by default (Emacs 28+), so it also fires in
+  ;; Org.  Turn the matching-pair highlight OFF in Org buffers (the brackets in
+  ;; links / footnotes / markup are just noise there); prog-mode keeps it.
+  (defun my/org-disable-show-paren ()
+    "Disable matching-pair highlighting in the current (Org) buffer."
+    (show-paren-local-mode -1))
+  (add-hook 'org-mode-hook #'my/org-disable-show-paren))
 
 (use-package elec-pair
   :hook (prog-mode . electric-pair-local-mode))
@@ -1117,25 +1125,187 @@ use\" error that crashes the daemon."
   :custom
   (jinx-languages "en_US"))
 
+;; Capture router: drop a capture under <project>/<section> in projects.org,
+;; prompting for the project.  One template per *kind* (issue/feature/task/
+;; note) scales to N projects with no per-project template sprawl.
+(defun my/org-capture-into-project (section)
+  "Set capture target to SECTION under a chosen :project: heading in projects.org.
+Creates SECTION as a child heading if it does not exist yet."
+  (let ((file (expand-file-name "projects.org" org-directory)))
+    (set-buffer (org-capture-target-buffer file))
+    (widen)
+    (goto-char (point-min))
+    (let* ((projects (org-map-entries
+                      (lambda () (org-get-heading t t t t)) "LEVEL=1" 'file))
+           (project (completing-read "Project: " projects nil t)))
+      (goto-char (point-min))
+      (re-search-forward
+       (format org-complex-heading-regexp-format (regexp-quote project)))
+      (org-narrow-to-subtree)
+      (if (re-search-forward
+           (format org-complex-heading-regexp-format (regexp-quote section)) nil t)
+          (goto-char (line-beginning-position))
+        (goto-char (point-max))
+        (unless (bolp) (insert "\n"))
+        (insert (format "** %s\n" section))
+        (forward-line -1))
+      (widen))))
+
 (use-package org
   :bind ( :map mode-specific-map
-          ("c" . org-capture))
+          ("c" . org-capture)
+          ("a" . org-agenda)
+          ("j" . org-clock-goto))
   :custom
-  (org-directory "~/org")
+  ;; --- paths (org lives in iCloud Drive = $SYNC_DIR/org, synced across devices) ---
+  (org-directory "~/Library/Mobile Documents/com~apple~CloudDocs/org")
   (org-default-notes-file (expand-file-name "inbox.org" org-directory))
+  (org-agenda-files (list org-directory))   ; scans org-directory top level; archive/ excluded
+  ;; --- startup / src blocks ---
   (org-startup-folded 'content)
-  (org-log-done 'time)
+  ;; NOTE: org-indent-mode is intentionally OFF — org-modern can only hide
+  ;; leading stars when org-indent is disabled, so we let org-modern style
+  ;; headings (single fold-triangle, no stray stars) instead of indenting.
   (org-src-fontify-natively t)
-  (org-edit-src-content-indentation 0)
+  (org-src-tab-acts-natively t)
   (org-src-preserve-indentation t)
+  (org-edit-src-content-indentation 0)
+  (org-src-window-setup 'current-window)
   (org-image-actual-width nil)
+  (org-confirm-babel-evaluate t)            ; SAFE: ask before running a src block
+  ;; --- TODO workflow ---
+  (org-todo-keywords
+   '((sequence "TODO(t)" "NEXT(n)" "PENDING(p@/!)" "REVIEW(r@/!)"
+               "|" "DONE(d!)" "CANCELLED(x@)")
+     (sequence "ISSUE(i)" "|" "FIXED(f!)" "WONTFIX(w@)")
+     (sequence "PROJECT(P)" "|" "COMPLETE(C)" "DROPPED(D@)")))
+  (org-todo-keyword-faces
+   '(("NEXT"      . (:inherit (bold org-todo)))
+     ("PENDING"   . (:inherit (bold warning)))
+     ("REVIEW"    . (:inherit (bold font-lock-keyword-face)))
+     ("ISSUE"     . (:inherit (bold error)))
+     ("PROJECT"   . (:inherit (bold font-lock-doc-face)))
+     ("CANCELLED" . (:inherit (org-done shadow) :strike-through t))
+     ("WONTFIX"   . (:inherit shadow :strike-through t))
+     ("DROPPED"   . (:inherit shadow :strike-through t))
+     ("FIXED"     . org-done)
+     ("COMPLETE"  . org-done)))
+  (org-use-fast-todo-selection 'expert)     ; minibuffer selection, no popup window
+  (org-enforce-todo-dependencies t)         ; parent can't be DONE with open children
+  (org-treat-insert-todo-heading-as-state-change t)
+  ;; --- logging ---
+  (org-log-done 'time)
+  (org-log-into-drawer t)                    ; tuck logs + clocks into :LOGBOOK:
+  (org-log-redeadline 'time)
+  (org-log-reschedule 'time)
+  ;; --- tags / properties (project CRM) ---
+  (org-tag-alist
+   '((:startgroup) ("shopify" . ?s) ("standalone" . ?a) (:endgroup)
+     (:startgroup) ("feature" . ?f) ("bug" . ?b) ("chore" . ?c) (:endgroup)
+     ("@shopify" . ?S) ("@deploy" . ?D) ("@email" . ?e) ("idea" . ?I)))
+  (org-tags-exclude-from-inheritance '("project"))
+  (org-use-property-inheritance '("STATUS" "REPO" "STACK"))
+  (org-columns-default-format
+   "%40ITEM(Project) %STATUS %12STACK %TODO %8CLOCKSUM(Clocked)")
+  (org-global-properties
+   '(("STATUS_ALL" . "active backlog paused shipped")
+     ("Effort_ALL" . "0:15 0:30 1:00 2:00 4:00 1d")))
+  ;; --- refile ---
+  (org-refile-targets '((nil . (:maxlevel . 3))
+                        (org-agenda-files . (:maxlevel . 3))))
+  (org-refile-use-outline-path 'file)
+  (org-outline-path-complete-in-steps nil)
+  (org-refile-allow-creating-parent-nodes 'confirm)
+  ;; --- scheduling discipline ---
+  (org-deadline-warning-days 14)
+  (org-agenda-skip-scheduled-if-done t)
+  (org-agenda-skip-deadline-if-done t)
+  ;; --- clocking (time tracking / billing) ---
+  (org-clock-persist 'history)
+  (org-clock-persist-query-resume nil)
+  (org-clock-in-resume t)
+  (org-clock-into-drawer t)
+  (org-clock-out-remove-zero-time-clocks t)
+  (org-clock-mode-line-total 'current)
+  (org-clock-report-include-clocking-task t)
+  (org-clock-in-switch-to-state
+   (lambda (state) (if (member state '("TODO")) "NEXT" state)))
+  ;; --- archive ---
+  (org-archive-location "archive/%s_archive::* Archived")
+  (org-archive-save-context-info '(time file olpath category itags))
+  ;; --- stuck projects: a PROJECT heading with no NEXT child ---
+  (org-stuck-projects '("/PROJECT" ("NEXT") nil ""))
+  ;; --- capture ---
+  (org-capture-bookmark nil)                 ; don't drop a fringe bookmark on each capture
   (org-capture-templates
-   '(("t" "Todo"  entry (file+headline "" "Tasks")
-      "* TODO %?\n  %U\n  %a")
-     ("n" "Note"  entry (file+headline "" "Notes")
-      "* %?\n  %U")
-     ("j" "Journal" entry (file+olp+datetree "journal.org")
-      "* %?\n  %U"))))
+   '(("t" "Todo → inbox" entry (file+headline "inbox.org" "Inbox")
+      "* TODO %?\n:PROPERTIES:\n:CREATED: %U\n:END:\n" :prepend t :empty-lines-after 1)
+     ("l" "Todo w/ link → inbox" entry (file+headline "inbox.org" "Inbox")
+      "* TODO %?\n:PROPERTIES:\n:CREATED: %U\n:END:\n%a\n" :prepend t :empty-lines-after 1)
+     ("n" "Note → inbox" entry (file+headline "inbox.org" "Inbox")
+      "* %?\n:PROPERTIES:\n:CREATED: %U\n:END:\n" :prepend t)
+     ("e" "Idea → ideas.org" entry (file+headline "ideas.org" "Ideas")
+      "* %? :idea:\n:PROPERTIES:\n:CREATED: %U\n:END:\n" :prepend t)
+     ("p" "Project…")
+     ("pi" "  Issue"   entry (function (lambda () (my/org-capture-into-project "Issues")))
+      "* ISSUE %^{Title} :bug:\n:PROPERTIES:\n:CREATED: %U\n:END:\n%a\n%?" :empty-lines-after 1)
+     ("pf" "  Feature" entry (function (lambda () (my/org-capture-into-project "Features")))
+      "* TODO %^{Title} :feature:\n:PROPERTIES:\n:CREATED: %U\n:END:\n%?" :empty-lines-after 1)
+     ("pt" "  Task"    entry (function (lambda () (my/org-capture-into-project "Tasks")))
+      "* TODO %^{Title}\n:PROPERTIES:\n:CREATED: %U\n:END:\n%?" :empty-lines-after 1)
+     ("pn" "  Note"    entry (function (lambda () (my/org-capture-into-project "Notes")))
+      "* %^{Title}\n:PROPERTIES:\n:CREATED: %U\n:END:\n%a\n%?" :empty-lines-after 1)
+     ("m" "Meeting (clock in)" entry (file+headline "gtd.org" "Meetings")
+      "* MEETING %^{With/about}\n:PROPERTIES:\n:CREATED: %U\n:END:\n%?"
+      :clock-in t :clock-resume t)
+     ("j" "Journal" entry (file+olp+datetree "journal.org") "* %?\n%U")))
+  ;; --- agenda: native multi-block dashboard ---
+  (org-agenda-window-setup 'current-window)
+  (org-agenda-block-separator ?─)
+  (org-agenda-tags-column -100)
+  (org-agenda-custom-commands
+   '(("d" "Daily dashboard"
+      ((agenda "" ((org-agenda-span 1) (org-deadline-warning-days 7)
+                   (org-agenda-overriding-header "Today")))
+       (tags-todo "+PRIORITY=\"A\"-project"
+                  ((org-agenda-overriding-header "Important — no date")
+                   (org-agenda-skip-function
+                    '(org-agenda-skip-entry-if 'scheduled 'deadline 'timestamp))))
+       (todo "NEXT"    ((org-agenda-overriding-header "Next actions")))
+       (todo "REVIEW"  ((org-agenda-overriding-header "In review")))
+       (todo "PENDING" ((org-agenda-overriding-header "Waiting / blocked")))
+       (todo "ISSUE"   ((org-agenda-overriding-header "Open issues")))))
+     ("p" "Projects overview"
+      ((todo "PROJECT" ((org-agenda-overriding-header "All projects")))
+       (stuck "" ((org-agenda-overriding-header "Stuck (no NEXT action)")))))
+     ("i" "Open issues"       todo "ISSUE")
+     ("r" "In review"         todo "REVIEW")
+     ("w" "Pending / waiting"  todo "PENDING")
+     ("R" "Weekly review"
+      ((agenda "" ((org-agenda-span 7) (org-agenda-start-on-weekday 1)
+                   (org-agenda-start-with-log-mode t)))
+       (stuck "")
+       (todo "PENDING")
+       (todo "REVIEW")))))
+  :config
+  (org-clock-persistence-insinuate)
+  (require 'org-tempo)                        ; <s TAB → src block, etc.
+  (org-babel-do-load-languages
+   'org-babel-load-languages
+   '((emacs-lisp . t) (shell . t) (sql . t) (python . t))))
+
+;; The single (optional) Org external package: a pure visual layer that pairs
+;; with modus-themes.  Drop it anytime — nothing else depends on it.
+(use-package org-modern
+  :ensure t
+  :hook (org-mode . org-modern-mode)
+  :custom
+  (org-modern-hide-stars 'leading)            ; hide leading stars; one bullet per heading
+  ;; Replace heading stars with org-modern's classic bullets (◉○◈◇✳).
+  ;; Well-supported glyphs — avoids the missing-glyph box the default fold
+  ;; triangles produced at level 3 (U+2BC8/U+2BC6).
+  (org-modern-star 'replace)
+  (org-modern-replace-stars "◉○◈◇✳"))
 
 (use-package autorevert
   :hook (after-init . global-auto-revert-mode)
@@ -1589,10 +1759,22 @@ Ports Kakoune's `open_changed_file_picker' (`SPC f m')."
         (delete-file file t)
         (kill-buffer)
         (message "Deleted %s" (abbreviate-file-name file)))))
+  (defun my/find-org-file ()
+    "Pick and open an Org file from `org-directory' (recursively, `SPC f o').
+Excludes .org_archive and backups.  Modeled on Prot's `prot-org-file-prompt'."
+    (interactive)
+    (require 'org)                         ; ensure `org-directory' is set
+    (let* ((dir (expand-file-name org-directory))
+           (files (seq-remove #'backup-file-name-p
+                              (directory-files-recursively dir "\\.org\\'" nil)))
+           (names (mapcar (lambda (f) (file-relative-name f dir)) files)))
+      (unless names (user-error "No Org files in %s" dir))
+      (find-file (expand-file-name (completing-read "Org file: " names nil t) dir))))
   (defvar-keymap my/kao-file-map
     :doc "File / find commands, Kakoune-picker-style (`SPC f')."
     "f" #'find-file                      ; find file
     "p" #'project-find-file              ; project file picker
+    "o" #'my/find-org-file               ; org file picker (org-directory)
     "r" #'consult-recent-file            ; recent files
     "l" #'consult-line                   ; line picker
     "g" #'consult-ripgrep                ; grep project
@@ -1651,6 +1833,33 @@ Ports Kakoune's `open_changed_file_picker' (`SPC f m')."
           '("~/.config/helix/runtime/queries"
             "/usr/local/share/kak/runtime/queries"))
     (kao-treesit-setup t))
+  ;; --- Org tweaks for kao normal state (via the public per-mode `kao-define-key'
+  ;;     seam, which shadows `kao-normal-state-map' in org buffers) ---
+  ;; (1) TAB/S-TAB fold like Org.  TAB needs reclaiming because kao's faithful
+  ;;     `C-i'=`kao-jump-forward' captures it (TAB == C-i); `<backtab>' (what
+  ;;     S-TAB sends) already falls through but is bound here too, one place.
+  ;; (2) h/j/k/l move like NATIVE Emacs (backward-char/next-line/previous-line/
+  ;;     forward-char) when there is a SINGLE selection -- so Org's visual-line +
+  ;;     folding navigation feels native -- while keeping kao's multi-cursor
+  ;;     motions when several selections are live.  Tagging `this-command' lets
+  ;;     kao's foreign-sync reconcile: collapse-to-point for the native command,
+  ;;     exempt (preserve the multi-selection) for the `kao-' motion.
+  (defun my/kao-native-or-motion (native motion)
+    "Run NATIVE on a single kao selection, else the kao MOTION; tag `this-command'."
+    (let ((cmd (if (= 1 (length (kao-get-selections))) native motion)))
+      (setq this-command cmd)
+      (call-interactively cmd)))
+  (defun my/kao-org-left  () (interactive) (my/kao-native-or-motion #'backward-char  #'kao-left))
+  (defun my/kao-org-right () (interactive) (my/kao-native-or-motion #'forward-char   #'kao-right))
+  (defun my/kao-org-down  () (interactive) (my/kao-native-or-motion #'next-line      #'kao-down))
+  (defun my/kao-org-up    () (interactive) (my/kao-native-or-motion #'previous-line  #'kao-up))
+  (kao-define-key 'org-mode
+                  (kbd "TAB")       #'org-cycle
+                  (kbd "<backtab>") #'org-shifttab
+                  (kbd "h") #'my/kao-org-left
+                  (kbd "l") #'my/kao-org-right
+                  (kbd "j") #'my/kao-org-down
+                  (kbd "k") #'my/kao-org-up)
 
   (kao-global-mode 1))
 
