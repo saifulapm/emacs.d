@@ -670,15 +670,16 @@ use\" error that crashes the daemon."
   :requires (local-config)
   :custom
   (modus-themes-org-blocks nil)
-  ;; Scaled headings for a clear hierarchy — kept in the mono font, just larger
-  ;; and weighted (no proportional family).
+  ;; Gentle heading hierarchy — kept in the mono font, mostly weight with only
+  ;; a small size bump (H1 ~15% over body).  Set every height to 1.0 for fully
+  ;; flat, body-size headings.
   (modus-themes-headings
-   '((0 . (light 1.4))                     ; #+title
-     (1 . (semibold 1.4))
-     (2 . (semibold 1.25))
-     (3 . (medium 1.15))
-     (4 . (1.1))
-     (t . (1.05))))
+   '((0 . (light 1.3))                     ; #+title
+     (1 . (semibold 1.15))
+     (2 . (semibold 1.1))
+     (3 . (medium 1.05))
+     (4 . (medium 1.0))
+     (t . (1.0))))
   (modus-themes-completions
    '((matches . (intense bold))
      (selection . (intense))))
