@@ -246,11 +246,20 @@ when upgrading the package."
     (let ((mono (cond ((font-installed-p "Maple Mono Ghostty") "Maple Mono Ghostty")
                       ((font-installed-p "Maple Mono") "Maple Mono")
                       ((font-installed-p "JetBrains Mono") "JetBrains Mono")))
+          ;; Proportional family for prose (variable-pitch / mixed-pitch in Org).
+          ;; SF Pro if you've installed it, else the macOS-stock Avenir Next.
+          (prop (cond ((font-installed-p "SF Pro Text") "SF Pro Text")
+                      ((font-installed-p "Avenir Next") "Avenir Next")
+                      ((font-installed-p "Optima") "Optima")
+                      ((font-installed-p "Helvetica Neue") "Helvetica Neue")))
           (height (if (eq system-type 'gnu/linux) 120 150)))
       (when mono
         (set-face-attribute 'default nil :font mono :height height :width 'normal :weight 'normal)
-        (set-face-attribute 'fixed-pitch nil :font mono)
-        (set-face-attribute 'variable-pitch nil :font mono)))
+        (set-face-attribute 'fixed-pitch nil :font mono))
+      ;; variable-pitch drives prose under mixed-pitch; fall back to mono if no
+      ;; proportional font is installed.
+      (when (or prop mono)
+        (set-face-attribute 'variable-pitch nil :font (or prop mono))))
     (setup-nerd-icons-fontset))
   (provide 'font))
 
@@ -668,6 +677,15 @@ use\" error that crashes the daemon."
   :requires (local-config)
   :custom
   (modus-themes-org-blocks nil)
+  ;; Scaled, proportional headings for a clear document hierarchy (uses the
+  ;; variable-pitch face configured in `setup-fonts').
+  (modus-themes-headings
+   '((0 . (variable-pitch light 1.4))      ; #+title
+     (1 . (variable-pitch semibold 1.4))
+     (2 . (variable-pitch semibold 1.25))
+     (3 . (variable-pitch medium 1.15))
+     (4 . (variable-pitch 1.1))
+     (t . (variable-pitch 1.05))))
   (modus-themes-completions
    '((matches . (intense bold))
      (selection . (intense))))
@@ -1172,6 +1190,10 @@ Creates SECTION as a child heading if it does not exist yet."
   ;; Only treat *braced* forms as sub/superscripts, so ordinary words with
   ;; underscores (foo_bar, my_file) are left untouched.
   (org-use-sub-superscripts '{})
+  ;; Hide the =*/_+~ emphasis markers themselves so *bold* reads as bold;
+  ;; org-appear (below) reveals them when the cursor is on the word so editing
+  ;; still works.
+  (org-hide-emphasis-markers t)
   ;; Breathing room that matches the surrounding context: a new heading gets a
   ;; blank line only where its siblings already have one (so new projects get a
   ;; gap, new sub-headings stay tight).  `auto' = mirror the existing spacing.
@@ -1335,6 +1357,32 @@ Creates SECTION as a child heading if it does not exist yet."
   (org-tidy-property-drawer-flag t)           ; tidy :PROPERTIES:
   (org-tidy-general-drawer-flag t)            ; tidy :LOGBOOK: / :CLOCK: too
   (org-tidy-protect-overlay t))
+
+;; Reveal the hidden emphasis markers / entities only while the cursor is on
+;; the element, so `org-hide-emphasis-markers' stays on without making text
+;; awkward to edit.
+(use-package org-appear
+  :ensure t
+  :hook (org-mode . org-appear-mode)
+  :custom
+  (org-appear-autoemphasis t)                 ; *bold* /italic/ =verbatim= ~code~
+  (org-appear-autoentities t)                 ; \alpha, x^{2} → show source on hover
+  (org-appear-autosubmarkers t)
+  (org-appear-autolinks nil))
+
+;; Proportional font for prose, monospace for code/tables/timestamps — Org
+;; reads like a typeset document while tables still align by character.  Beats
+;; bare `variable-pitch-mode', which would flip org-table to proportional and
+;; misalign every table.
+(use-package mixed-pitch
+  :ensure t
+  :hook (org-mode . mixed-pitch-mode)
+  :config
+  ;; Keep org-modern's pills and table/formula faces monospace.
+  (dolist (face '(org-modern-label org-modern-tag org-modern-date
+                  org-modern-time org-modern-todo org-modern-priority
+                  org-table org-formula))
+    (add-to-list 'mixed-pitch-fixed-pitch-faces face)))
 
 (use-package autorevert
   :hook (after-init . global-auto-revert-mode)

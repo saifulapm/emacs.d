@@ -32,8 +32,8 @@ Org entities render to nice glyphs (=org-pretty-entities= is on):
 
 - Arrows: \rightarrow \Rightarrow \leftrightarrow
 - Greek:  \alpha \beta \gamma \lambda \Omega
-- Misc:   \copyright \trade \deg \plusmn \times \div \euro \hbar
-- Spaces/dashes: en-dash \endash em-dash \emdash
+- Misc:   \copy \trade \deg \plusmn \times \div \euro \hbar
+- Spaces/dashes: en-dash \ndash em-dash \mdash
 
 LaTeX fragments (preview with =C-c C-x C-l=; remove with =C-c C-x C-l= again):
 
