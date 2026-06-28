@@ -1307,6 +1307,20 @@ Creates SECTION as a child heading if it does not exist yet."
   (org-modern-star 'replace)
   (org-modern-replace-stars "◉○◈◇✳"))
 
+;; Hide :PROPERTIES:/:LOGBOOK: drawers behind a small inline marker; they
+;; reveal automatically when the cursor enters them.  Cleaner than native
+;; folding (no leftover `:PROPERTIES:...' line).  Toggle: M-x org-tidy-toggle.
+(use-package org-tidy
+  :ensure t
+  :hook (org-mode . org-tidy-mode)
+  :custom
+  (org-tidy-properties-style 'inline)        ; small ♯ marker, not the contents
+  (org-tidy-properties-inline-symbol "♯")
+  (org-tidy-top-property-style 'invisible)    ; fully hide the file-level drawer
+  (org-tidy-property-drawer-flag t)           ; tidy :PROPERTIES:
+  (org-tidy-general-drawer-flag t)            ; tidy :LOGBOOK: / :CLOCK: too
+  (org-tidy-protect-overlay t))
+
 (use-package autorevert
   :hook (after-init . global-auto-revert-mode)
   :custom
