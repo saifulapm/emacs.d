@@ -1294,6 +1294,7 @@ Creates SECTION as a child heading if it does not exist yet."
        (todo "REVIEW")))))
   :config
   (org-clock-persistence-insinuate)
+  (require 'org-habit)                        ; :STYLE: habit -> consistency graph in agenda
   (require 'org-tempo)                        ; <s TAB → src block, etc.
   (org-babel-do-load-languages
    'org-babel-load-languages
