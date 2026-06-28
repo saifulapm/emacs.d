@@ -1,0 +1,223 @@
+#+title: Org Feature Showcase — learn every feature
+#+author: Saiful Islam
+#+startup: overview inlineimages
+#+options: toc:2 num:nil
+#+macro: kbd =$1=
+
+# A complete, hands-on reference of Org markup & features.  Open with
+#   C-x C-f ~/.config/emacs/org-showcase.org
+# It lives OUTSIDE ~/org so its example TODOs never reach your agenda.
+# Put your cursor on things and try them; toggle images with C-c C-x C-v.
+# The everyday WORKFLOW features (TODO states, agenda, capture, projects,
+# clocking) are demonstrated live in your ~/org files — this file focuses on
+# MARKUP, CONTENT and the advanced bits.
+
+* Inline emphasis & markup
+You can mark text up inline:
+
+- *bold*  (=*bold*=)
+- /italic/  (=/italic/=)
+- _underline_  (=_underline_=)
+- +strikethrough+  (=+strike+=)
+- =verbatim=  (literal, never interpreted)
+- ~code~  (inline code)
+- Super/subscripts: E = mc^{2},  H_{2}O,  x^{n} + y^{n}
+  (rendered because =org-pretty-entities= is on; raw form is =mc^{2}=)
+
+Tip: emphasis markers (=* / _ + = ~=) are visible in your setup; you can hide
+them with =org-hide-emphasis-markers t= + =org-appear=.
+
+* Entities, symbols & math
+Org entities render to nice glyphs (=org-pretty-entities= is on):
+
+- Arrows: \rightarrow \Rightarrow \leftrightarrow
+- Greek:  \alpha \beta \gamma \lambda \Omega
+- Misc:   \copyright \trade \deg \plusmn \times \div \euro \hbar
+- Spaces/dashes: en-dash \endash em-dash \emdash
+
+LaTeX fragments (preview with =C-c C-x C-l=; remove with =C-c C-x C-l= again):
+
+- Inline:  \( a^2 + b^2 = c^2 \)   and the dollar form  $e^{i\pi} + 1 = 0$
+- Display:
+  \[
+  \sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+  \]
+
+* Lists
+** Unordered (=-= or =+=)
+- apples
+- oranges
+  - mandarin   (nested: indent two spaces)
+  - blood orange
+
+** Ordered (=1.= or =1)=)
+1. clone the repo
+2. install deps
+3. run the dev server
+
+** Description list (=term :: definition=)
+- Org :: an outliner + plain-text everything
+- Babel :: runs code blocks inside Org
+- Agenda :: the time/Task dashboard
+
+** Checkboxes with a statistics cookie [1/3]
+- [X] write the spec
+- [ ] implement it
+- [ ] add tests
+(=C-c C-c= on a box toggles it and updates the [1/3] cookie.)
+
+* Tables
+** Basic, with alignment
+| Name    | Role        |   Rate |
+|---------+-------------+--------|
+| Alice   | Design      |  90.00 |
+| Bob     | Engineering | 120.00 |
+(=TAB= moves cell-to-cell and auto-aligns; =C-c |= makes a table from text.)
+
+** Spreadsheet with a formula (=#+TBLFM=)
+| Item   | Qty | Price | Total |
+|--------+-----+-------+-------|
+| Widget |   3 |  9.99 |       |
+| Gadget |   2 | 14.50 |       |
+|--------+-----+-------+-------|
+| Sum    |     |       |       |
+#+TBLFM: $4=$2*$3;%.2f::@5$4=vsum(@2..@3);%.2f
+(Put cursor in the table and press =C-c C-c= to compute Total = Qty×Price and the Sum.)
+
+* Blocks
+** Source block (Babel) — named, with a variable and a result
+#+name: square
+#+begin_src emacs-lisp :var x=7 :results value
+(* x x)
+#+end_src
+
+#+RESULTS: square
+: 49
+(=C-c C-c= inside the block runs it and writes/updates =#+RESULTS=.)
+
+** Example block (verbatim, monospace)
+#+begin_example
+$ git status
+On branch main
+nothing to commit, working tree clean
+#+end_example
+
+** Quote block
+#+begin_quote
+"Simple things should be simple, complex things should be possible."
+ — Alan Kay
+#+end_quote
+
+** Verse block (preserves line breaks — poetry, lyrics)
+#+begin_verse
+Roses are red,
+  Org is plain text,
+Folding is neat,
+  and tables compute.
+#+end_verse
+
+** Center block
+#+begin_center
+This text is centered on export.
+#+end_center
+
+** Export block (raw, passed through to a backend on export)
+#+begin_export html
+<mark>This is raw HTML, only used when exporting to HTML.</mark>
+#+end_export
+
+** Comment block (never exported, ignored)
+#+begin_comment
+TODO: rewrite this section. This whole block is invisible to export.
+#+end_comment
+
+* Links
+- External:        [[https://orgmode.org][Org website]]
+- Bare URL:        https://www.gnu.org/software/emacs/
+- File:            [[file:org-cheatsheet.org][my Org cheatsheet]]
+- File + search:   [[file:org-cheatsheet.org::*Capture][cheatsheet → Capture heading]]
+- Internal heading: [[Tables]] (jumps to the "Tables" heading in THIS file)
+- Custom-id:       [[#install][go to Install section]]  (targets a :CUSTOM_ID:)
+- ID link:         [[id:demo-id-0001][go to the ID-tagged heading]]
+- Radio target:    the word OrgRadio anywhere auto-links once defined below.
+- Inline image (toggle with =C-c C-x C-v=):
+  [[file:org-showcase-demo.svg]]
+
+<<<OrgRadio>>>  ← defining this radio target makes every "OrgRadio" a link.
+
+** Install
+:PROPERTIES:
+:CUSTOM_ID: install
+:END:
+This heading has a =:CUSTOM_ID: install=, so [[#install]] links straight here.
+
+** A heading with an :ID:
+:PROPERTIES:
+:ID:       demo-id-0001
+:END:
+=id:= links survive even if you move/rename the heading (stored by org-id).
+
+* Footnotes
+Org supports footnotes[fn:1] and named ones[fn:note] inline.
+
+[fn:1] This is a numbered footnote. =C-c C-x f= inserts/jumps; cursor on the
+ref + =C-c C-c= toggles to the definition.
+[fn:note] A named footnote definition.
+
+* Horizontal rule
+A line of five or more dashes becomes a rule on export:
+
+-----
+
+* Timestamps, repeaters & the diary
+- Active (shows in agenda):   <2026-07-01 Wed>
+- With time / range:          <2026-07-01 Wed 14:00-15:00>
+- Inactive (no agenda):       [2026-07-01 Wed]
+- Repeating:                  <2026-07-01 Wed +1w>   (weekly)
+- Habit-style repeater:       <2026-07-01 Wed .+2d>  (2 days after you DONE it)
+- Range between two dates:    <2026-07-01 Wed>--<2026-07-04 Sat>
+
+Diary-style "sexp" timestamps (great for birthdays/holidays). In an agenda
+file these show up automatically on the right day:
+- Anniversary:  <%%(org-anniversary 1990 7 1)>
+- Every Friday: <%%(org-class 2026 1 1 2026 12 31 5)>   (example pattern)
+
+* Drawers
+Property drawer (machine-readable key/values, hidden by org-tidy):
+:PROPERTIES:
+:GENRE:    reference
+:RATING:   5
+:END:
+
+A custom named drawer (free-form, folds like any drawer):
+:NOTES:
+Anything can live in a custom drawer.  Press TAB on the :NOTES: line to fold.
+:END:
+
+* Dynamic blocks, macros & includes
+** A macro
+Defined in the file header as =#+macro: kbd=; use it like {{{kbd(C-c C-c)}}}
+and it expands on export.
+
+** Include another file (processed on export)
+#+INCLUDE: "./org-cheatsheet.org::*One-page cheat sheet" :only-contents t
+(In the buffer you just see this line; on export the section is pulled in.)
+
+** Dynamic block (regenerates with C-c C-c) — a clock table example
+#+BEGIN: clocktable :scope file :maxlevel 2
+#+END:
+(Your live column-view and clock dashboards are in ~/org/projects.org.)
+
+* Export & document keywords
+The header of this file shows the common ones:
+- =#+title:= =#+author:= — document metadata
+- =#+startup:= overview/content/inlineimages — initial visibility
+- =#+options: toc:2 num:nil= — table of contents depth, no section numbers
+Export the file with =C-c C-e= (the export dispatcher) → HTML, PDF, Markdown, …
+
+* See also (the workflow features, demonstrated live)
+- TODO states / NEXT / PENDING / REVIEW / ISSUE / PROJECT → ~/org/projects.org, gtd.org
+- Agenda dashboards (C-c a)                                → built from those files
+- Capture (C-c c), refile (C-c C-w), archive (C-c C-x C-a) → see org-cheatsheet.org
+- Clocking, effort, column-view CRM, stuck projects        → ~/org/projects.org
+- Habit consistency graph & anniversaries                  → ~/org/gtd.org (in the agenda)

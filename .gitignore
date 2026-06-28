@@ -19,3 +19,4 @@ transient/*
 !.claude/
 !.claude/*
 !.gitignore
+!org-showcase.org
