@@ -1163,6 +1163,11 @@ Creates SECTION as a child heading if it does not exist yet."
   (org-agenda-files (list org-directory))   ; scans org-directory top level; archive/ excluded
   ;; --- startup / src blocks ---
   (org-startup-folded 'content)
+  ;; Breathing room that matches the surrounding context: a new heading gets a
+  ;; blank line only where its siblings already have one (so new projects get a
+  ;; gap, new sub-headings stay tight).  `auto' = mirror the existing spacing.
+  (org-blank-before-new-entry '((heading . auto) (plain-list-item . auto)))
+  (org-cycle-separator-lines 1)              ; show 1 blank line above folded headings
   ;; NOTE: org-indent-mode is intentionally OFF — org-modern can only hide
   ;; leading stars when org-indent is disabled, so we let org-modern style
   ;; headings (single fold-triangle, no stray stars) instead of indenting.
