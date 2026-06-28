@@ -674,10 +674,10 @@ use\" error that crashes the daemon."
   ;; a small size bump (H1 ~15% over body).  Set every height to 1.0 for fully
   ;; flat, body-size headings.
   (modus-themes-headings
-   '((0 . (light 1.3))                     ; #+title
-     (1 . (semibold 1.15))
-     (2 . (semibold 1.1))
-     (3 . (medium 1.05))
+   '((0 . (light 1.2))                     ; #+title
+     (1 . (semibold 1.1))
+     (2 . (semibold 1.05))
+     (3 . (medium 1.0))
      (4 . (medium 1.0))
      (t . (1.0))))
   (modus-themes-completions
