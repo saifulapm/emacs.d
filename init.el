@@ -1163,6 +1163,15 @@ Creates SECTION as a child heading if it does not exist yet."
   (org-agenda-files (list org-directory))   ; scans org-directory top level; archive/ excluded
   ;; --- startup / src blocks ---
   (org-startup-folded 'content)
+  ;; --- in-buffer rendering / prettify ---
+  ;; Render \alpha->a, \rightarrow->arrow, \copyright->(c) and braced
+  ;; sub/superscripts (x^{2}, H_{2}O) as real glyphs.  Off by default; the
+  ;; org-showcase file assumes it is on.
+  (org-pretty-entities t)
+  (org-pretty-entities-include-sub-superscripts t)
+  ;; Only treat *braced* forms as sub/superscripts, so ordinary words with
+  ;; underscores (foo_bar, my_file) are left untouched.
+  (org-use-sub-superscripts '{})
   ;; Breathing room that matches the surrounding context: a new heading gets a
   ;; blank line only where its siblings already have one (so new projects get a
   ;; gap, new sub-headings stay tight).  `auto' = mirror the existing spacing.
