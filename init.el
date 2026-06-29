@@ -1277,6 +1277,9 @@ Creates SECTION as a child heading if it does not exist yet."
      ("e" "Idea → ideas.org" entry (file+headline "ideas.org" "Ideas")
       "* %? :idea:\n:PROPERTIES:\n:CREATED: %U\n:END:\n" :prepend t)
      ("p" "Project…")
+     ("pp" "  New project" entry (file "projects.org")
+      "* PROJECT %^{Project name} :project:\n:PROPERTIES:\n:STATUS:   %^{Status|active|backlog|paused|shipped}\n:STACK:    %^{Stack}\n:REPO:     %^{Repo}\n:CREATED:  %U\n:END:\n\n** Details\n%?\n\n** Features\n** Issues\n** Tasks\n** Notes"
+      :prepend t :empty-lines-after 1)
      ("pi" "  Issue"   entry (function (lambda () (my/org-capture-into-project "Issues")))
       "* ISSUE %^{Title} :bug:\n:PROPERTIES:\n:CREATED: %U\n:END:\n%a\n%?" :empty-lines-after 1)
      ("pf" "  Feature" entry (function (lambda () (my/org-capture-into-project "Features")))
