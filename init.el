@@ -830,6 +830,11 @@ use\" error that crashes the daemon."
   (ediff-window-setup-function 'ediff-setup-windows-plain)
   (ediff-split-window-function 'split-window-horizontally))
 
+;; HEY.com-style email: notmuch + mbsync + msmtp.  Backend config lives in
+;; ~/.mbsyncrc, ~/.notmuch-config, ~/.msmtprc and ~/Mail/.notmuch/hooks/.
+(add-to-list 'load-path (locate-user-emacs-file "lisp"))
+(load (locate-user-emacs-file "lisp/hey-notmuch") :noerror)
+
 (use-package magit
   :ensure t
   :bind ("C-x g" . magit-status)

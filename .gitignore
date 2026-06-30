@@ -16,6 +16,10 @@ transient/*
 !scripts/
 !scripts/*
 
+# Keep lisp folder (hey-notmuch.el etc.)
+!lisp/
+!lisp/*
+
 !.claude/
 !.claude/*
 !.gitignore
