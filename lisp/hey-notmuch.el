@@ -31,6 +31,13 @@
      (:name "Seen"       :query "tag:screened and not tag:unread"               :key "I")
      (:name "All Inbox"  :query "tag:inbox"                                     :key "x")
      (:name "Sent"       :query "tag:sent"                                      :key "t")))
+  ;; Always show every HEY box, even empty ones (fixed HEY-style layout).
+  (notmuch-show-empty-saved-searches t)
+  ;; Minimal hello screen: just the HEY boxes, nothing else. No search box
+  ;; needed — `s' runs notmuch-search from any notmuch buffer, `z' searches in
+  ;; tree view, `j'/`J' jump to a box.
+  (notmuch-hello-sections '(notmuch-hello-insert-saved-searches))
+  (notmuch-hello-thousands-separator "")   ; 1465, not "1 465"
   (notmuch-show-logo nil)
   (notmuch-search-oldest-first nil)
   (notmuch-archive-tags '("-inbox" "+archived"))
@@ -46,7 +53,8 @@
   :config
   ;; `J' = jump to a HEY box from anywhere in notmuch (HEY's "jump").
   (define-key notmuch-search-mode-map (kbd "J") #'notmuch-jump-search)
-  (define-key notmuch-tree-mode-map   (kbd "J") #'notmuch-jump-search))
+  (define-key notmuch-tree-mode-map   (kbd "J") #'notmuch-jump-search)
+  (define-key notmuch-hello-mode-map  (kbd "J") #'notmuch-jump-search))
 
 ;; ───────────────────────────── sending ──────────────────────────────
 (with-eval-after-load 'message
