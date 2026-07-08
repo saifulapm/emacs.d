@@ -1329,6 +1329,15 @@ Creates SECTION as a child heading if it does not exist yet."
   (org-clock-persistence-insinuate)
   (require 'org-habit)                        ; :STYLE: habit -> consistency graph in agenda
   (require 'org-tempo)                        ; <s TAB → src block, etc.
+  ;; --- project dashboards: every ~/Sites/*/*/PROJECT.org joins the agenda ---
+  ;; PROJECT.org files are pipeline dashboards generated/synced by the
+  ;; org-dashboard skill (~/Sites/github/claude-skills). Recomputed before each
+  ;; agenda build so new projects appear without a restart.
+  (defun my/org-agenda-add-project-files (&rest _)
+    (setq org-agenda-files
+          (append (list org-directory)
+                  (file-expand-wildcards "~/Sites/*/*/PROJECT.org"))))
+  (advice-add 'org-agenda :before #'my/org-agenda-add-project-files)
   (org-babel-do-load-languages
    'org-babel-load-languages
    '((emacs-lisp . t) (shell . t) (sql . t) (python . t))))
