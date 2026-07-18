@@ -1590,7 +1590,7 @@ Creates SECTION as a child heading if it does not exist yet."
 ;; the autoloaded globalized entry; it already excludes the minibuffer,
 ;; special/derived buffers, and terminals (ghostel) from modal editing.
 (use-package kao
-  :vc (:url "https://github.com/saifulapm/kao")
+  :vc (:url "https://github.com/saifulapm/kao" :rev :last-release)
   :demand t
   :config
   ;; --- System clipboard ----------------------------------------------------
@@ -2185,6 +2185,229 @@ output filter ghostel doesn't provide (it would hang)."
 ;; of ghostel-compile above; autoloaded the same way, so this defers cleanly.
 (use-package ghostel-comint
   :hook (after-init . ghostel-comint-global-mode))
+
+;; Claude Code fleet indicator.  Each active project runs `claude agents
+;; --cwd <root>' inside its project ghostel; with 6-7 projects live at once,
+;; spotting a stopped agent means cycling s-[ / s-] through every terminal.
+;; This polls the same data (`claude agents --json') on a timer instead and
+;; renders one clickable glyph per active project into `global-mode-string'
+;; (which `mode-line-misc-info' displays, right-aligned): a green spinner
+;; while every agent works, a red ● (with a count) when any blocks on a
+;; permission prompt or question.  Active means all of: the session has a
+;; `pid' in the JSON (no pid = dead session from a long-closed project), it
+;; is not idle (`status idle' = turn over, nothing running), and a ghostel
+;; buffer lives under the project root (sessions running outside this Emacs
+;; stay hidden).  Hover for the project path and
+;; per-session states; mouse-1 jumps to that project's ghostel buffer,
+;; spawning one when missing.  Sessions `run-tracks'
+;; fans out into `<root>/.worktrees/<track>' collapse onto the root, so a
+;; project stays one segment no matter how many tracks are building.
+(use-package claude-agents
+  :no-require
+  :preface
+  (defvar my/claude-agents-interval 10
+    "Seconds between `claude agents --json' polls.
+Each poll pays one Node CLI startup — async, so redisplay never blocks —
+raise this if the background CPU bothers you.")
+  (defvar my/claude-agents--timer nil)
+  (defvar my/claude-agents--process nil)
+  (defvar my/claude-agents--by-root nil
+    "Last poll's background sessions, grouped (ROOT . SESSIONS) and sorted.")
+  (defvar my/claude-agents--spinner ["⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏"]
+    "Braille spinner frames for projects whose agents are all working.")
+  (defvar my/claude-agents--frame 0)
+  (defvar my/claude-agents--anim-timer nil)
+  (defvar my/claude-agents-mode-line-string nil
+    "Rendered fleet segments, spliced into `global-mode-string'.")
+  (put 'my/claude-agents-mode-line-string 'risky-local-variable t)
+  (defun my/claude-agents--root (cwd)
+    "Project root for a session CWD.
+run-tracks spawns track sessions inside `<root>/.worktrees/<track>' git
+worktrees; collapse those onto the root so the whole build renders as a
+single segment."
+    (if (string-match "\\`\\(.*?\\)/\\.worktrees/" cwd)
+        (match-string 1 cwd)
+      cwd))
+  (defun my/claude-agents--ghostel-buffer (root)
+    "Live ghostel buffer whose directory sits under ROOT, if any."
+    (seq-find (lambda (buf)
+                (with-current-buffer buf
+                  (and (derived-mode-p 'ghostel-mode)
+                       (not (file-remote-p default-directory))
+                       (file-in-directory-p default-directory root))))
+              (buffer-list)))
+  (defun my/claude-agents-goto (root)
+    "Switch to ROOT's ghostel buffer, spawning one there when none exists."
+    (if-let* ((buf (my/claude-agents--ghostel-buffer root)))
+        (pop-to-buffer-same-window buf)
+      (let ((default-directory root))
+        (ghostel-project))))
+  (defun my/claude-agents--state (session)
+    "SESSION's effective state: `working', `blocked', or `idle'.
+`state' (background sessions) flags blocked — a permission prompt or a
+question.  `status' flags idle — the turn is over; it overrides a stale
+`state working' (a live idle session still reports the state its last
+turn ran under)."
+    (cond ((equal (alist-get 'state session) "blocked") 'blocked)
+          ((equal (alist-get 'status session) "idle") 'idle)
+          (t 'working)))
+  (defun my/claude-agents--segment (root sessions)
+    "One clickable status glyph for ROOT's SESSIONS.
+A red ● (with a count when several) demands attention — a session
+blocked on a permission or a question.  A spinner frame means
+everything is still working.  The glyph carries no name, so the
+tooltip leads with the project path."
+    (let ((blocked (seq-filter
+                    (lambda (s) (eq (my/claude-agents--state s) 'blocked))
+                    sessions)))
+      (propertize
+       (if blocked
+           (concat "●" (when (cdr blocked)
+                         (number-to-string (length blocked))))
+         (aref my/claude-agents--spinner
+               (mod my/claude-agents--frame
+                    (length my/claude-agents--spinner))))
+       'face (if blocked 'error 'success)
+       'mouse-face 'mode-line-highlight
+       'help-echo (concat
+                   (abbreviate-file-name root) "\n"
+                   (mapconcat (lambda (s)
+                                (format "%s — %s"
+                                        (my/claude-agents--state s)
+                                        (alist-get 'name s)))
+                              sessions "\n")
+                   "\nmouse-1: ghostel buffer")
+       'local-map (let ((map (make-sparse-keymap)))
+                    (define-key map [mode-line down-mouse-1]
+                                (lambda () (interactive)
+                                  (my/claude-agents-goto root)))
+                    map))))
+  (defun my/claude-agents--open-roots ()
+    "Directories of live local ghostel buffers.
+A project counts as open in THIS Emacs when its terminal exists — the
+workflow gives every active project a ghostel running `claude agents';
+live sessions running outside Emacs (a bare Ghostty tab) stay hidden."
+    (delq nil (mapcar (lambda (buf)
+                        (with-current-buffer buf
+                          (and (derived-mode-p 'ghostel-mode)
+                               (not (file-remote-p default-directory))
+                               default-directory)))
+                      (buffer-list))))
+  (defun my/claude-agents--rebuild ()
+    "Rebuild the glyphs from the last poll, open projects only.
+Also starts/stops the spinner animation timer: it only ticks while a
+visible project is actually working, so an idle fleet costs nothing."
+    (let* ((dirs (my/claude-agents--open-roots))
+           (open (seq-filter
+                  (lambda (group)
+                    (seq-some (lambda (dir)
+                                (file-in-directory-p dir (car group)))
+                              dirs))
+                  my/claude-agents--by-root))
+           (working
+            (seq-some (lambda (group)
+                        (seq-some (lambda (s)
+                                    (eq (my/claude-agents--state s) 'working))
+                                  (cdr group)))
+                      open)))
+      (setq my/claude-agents-mode-line-string
+            (when open
+              (concat " " (mapconcat
+                           (lambda (group)
+                             (my/claude-agents--segment (car group)
+                                                        (cdr group)))
+                           open " "))))
+      (cond ((and working (not my/claude-agents--anim-timer))
+             (setq my/claude-agents--anim-timer
+                   (run-with-timer 0.2 0.2 #'my/claude-agents--animate)))
+            ((and (not working) my/claude-agents--anim-timer)
+             (cancel-timer my/claude-agents--anim-timer)
+             (setq my/claude-agents--anim-timer nil)))
+      (force-mode-line-update t)))
+  (defun my/claude-agents--animate ()
+    (setq my/claude-agents--frame (1+ my/claude-agents--frame))
+    (my/claude-agents--rebuild))
+  (defun my/claude-agents--ghostel-changed ()
+    "Rebuild when a ghostel buffer is born or killed.
+A project's glyph should (dis)appear the moment its terminal does, not
+at the next poll.  Deferred a tick: inside `kill-buffer-hook' the dying
+buffer still counts as live."
+    (when (derived-mode-p 'ghostel-mode)
+      (run-with-timer 0 nil #'my/claude-agents--rebuild)))
+  (defun my/claude-agents--render (sessions)
+    "Group live, non-idle SESSIONS by project root, then rebuild the glyphs.
+Live means the session has a numeric `pid' — a running process; the CLI
+also reports the last recorded state of dead sessions from long-closed
+projects, and those are noise.  Idle sessions are dropped too — turn
+over, nothing running, nothing stuck — so the bar only carries projects
+being actively worked.  Interactive sessions count the same as
+background ones: a plain `claude' typed at in some project's ghostel is
+part of the fleet.  Alphabetical order keeps glyphs from jumping around
+between polls."
+    (setq my/claude-agents--by-root
+          (sort (seq-group-by
+                 (lambda (s) (my/claude-agents--root (alist-get 'cwd s)))
+                 (seq-filter
+                  (lambda (s)
+                    (and (numberp (alist-get 'pid s))
+                         (not (eq (my/claude-agents--state s) 'idle))))
+                  sessions))
+                :key #'car :lessp #'string<))
+    (my/claude-agents--rebuild))
+  (defun my/claude-agents--sentinel (proc _event)
+    (when (memq (process-status proc) '(exit signal))
+      (let ((buf (process-buffer proc)))
+        (unwind-protect
+            (when (zerop (process-exit-status proc))
+              ;; A failed parse (CLI hiccup) keeps the previous render.
+              (ignore-errors
+                (my/claude-agents--render
+                 (with-current-buffer buf
+                   (goto-char (point-min))
+                   (json-parse-buffer :object-type 'alist
+                                      :array-type 'list)))))
+          (kill-buffer buf)))))
+  (defun my/claude-agents--refresh ()
+    "Poll `claude agents --json' asynchronously.
+Runs through the shell so stderr noise can't corrupt the JSON; skipped
+while the previous poll is still running."
+    (unless (process-live-p my/claude-agents--process)
+      (setq my/claude-agents--process
+            (make-process
+             :name "claude-agents"
+             :buffer (generate-new-buffer " *claude-agents*")
+             :command (list shell-file-name shell-command-switch
+                            "claude agents --json 2>/dev/null")
+             :connection-type 'pipe :noquery t
+             :sentinel #'my/claude-agents--sentinel))))
+  (define-minor-mode my/claude-agents-mode
+    "Show per-project Claude Code background-agent status in the modeline."
+    :global t
+    (dolist (timer '(my/claude-agents--timer my/claude-agents--anim-timer))
+      (when (symbol-value timer)
+        (cancel-timer (symbol-value timer))
+        (set timer nil)))
+    (setq global-mode-string
+          (remq 'my/claude-agents-mode-line-string global-mode-string)
+          my/claude-agents-mode-line-string nil
+          my/claude-agents--by-root nil)
+    (remove-hook 'ghostel-mode-hook #'my/claude-agents--ghostel-changed)
+    (remove-hook 'kill-buffer-hook #'my/claude-agents--ghostel-changed)
+    (when my/claude-agents-mode
+      (add-hook 'ghostel-mode-hook #'my/claude-agents--ghostel-changed)
+      (add-hook 'kill-buffer-hook #'my/claude-agents--ghostel-changed)
+      ;; Seed with "" first (as `display-time-mode' does): if the list ends up
+      ;; STARTING with our symbol, mode-line data reads it as the conditional
+      ;; construct (SYMBOL THEN ELSE) — with no THEN it renders `*invalid*'.
+      (or global-mode-string (setq global-mode-string '("")))
+      (add-to-list 'global-mode-string 'my/claude-agents-mode-line-string t)
+      (setq my/claude-agents--timer
+            (run-with-timer 0 my/claude-agents-interval
+                            #'my/claude-agents--refresh))))
+  :config
+  (when (executable-find "claude")
+    (add-hook 'after-init-hook #'my/claude-agents-mode))
+  (provide 'claude-agents))
 
 (use-package gptel
   :ensure t
