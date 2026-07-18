@@ -1600,42 +1600,43 @@ Creates SECTION as a child heading if it does not exist yet."
   (setq select-enable-clipboard t)
 
   ;; --- gw : jump to a word with avy (Kakoune `gw' = hop-kak-words) ---------
-  ;; kao's goto menu is a fixed spec table (`kao--goto-specs'), not a keymap,
-  ;; with no public registrar, so extend it directly.  `gw' runs avy then
-  ;; collapses the selection onto the landing point: kao's `g' dispatch is
-  ;; exempt from the avy-aware foreign-sync, so the jump must be adopted here
-  ;; or the post-command mirror snaps point back.
+  ;; kao 1.0 exposes `kao-goto-define' (KEY KIND PAYLOAD DOC) as the public
+  ;; registrar for the `g'/`G' menu — it upserts the spec row and its autoinfo
+  ;; row together, so no more reaching into `kao--goto-specs'/`kao--goto-info'.
+  ;; `gw' runs avy then collapses the selection onto the landing point: kao's
+  ;; `g' dispatch is exempt from the avy-aware foreign-sync, so the jump must be
+  ;; adopted here or the post-command mirror snaps point back.
   (defun my/kao-goto-word ()
     "Jump to a word with avy, then collapse the kao selection there (`gw')."
     (interactive)
     (avy-goto-word-0 nil)
-    (when (bound-and-true-p kao-mode)
+    (when (kao-normal-state-p)
       (kao-set-selections
        (list (kao-sel-make :anchor (point) :cursor (point))))))
-  (add-to-list 'kao--goto-specs (list ?w 'command #'my/kao-goto-word) t)
-  (add-to-list 'kao--goto-info '(?w . "avy word") t)
+  (kao-goto-define ?w 'command #'my/kao-goto-word "avy word")
 
   ;; --- gd/gr/gy : kakoune-lsp goto bindings on kao's `g' menu ----------------
   ;; Faithful to kakoune-lsp (`gd' definition, `gr' references, `gy' type-def).
   ;; kao's `g' dispatch is exempt from foreign-sync (the same reason `gw' above
   ;; collapses by hand), so each wrapper adopts the jump via `kao-set-selections'
-  ;; or the post-command mirror snaps point back.  `gd' OVERRIDES kao's
-  ;; display-line-down motion (in-place `setcdr', so `assq' dispatch picks the new
-  ;; target with no duplicate key); `gu' still does prev-display-line.  `gr'/`gy'
-  ;; are free goto keys.
+  ;; or the post-command mirror snaps point back.  `kao-goto-define' upserts, so
+  ;; `gd' cleanly OVERRIDES kao's display-line-down motion (same key, spec+info
+  ;; replaced atomically); `gu' still does prev-display-line.  `gr'/`gy' are free
+  ;; goto keys.
   (defun my/kao-goto--jump (command)
     "Push a kao jump for the pre-jump position, run COMMAND, then collapse.
 The jump push is what makes kao's `C-o' (`kao-jump-backward') return here:
-xref pushes only its OWN marker stack (recoverable with `M-,'), NOT kao's
-jump list (`kao--jumps'), so without this `gd'/`gr'/`gy' leave nothing for
-`C-o' to walk back to.  Faithful to Kakoune+kakoune-lsp, where `gd' is a jump
-on the jump list (`goto_commands' push_jump).  Captured BEFORE the jump,
-exactly like the coord targets in `kao-goto--dispatch' — kao's `command'-type
-goto specs deliberately skip the push (`kao-menu.el', the `'command' arm)."
-    (when (bound-and-true-p kao-mode)
-      (kao--jump-push))
+xref pushes only its OWN marker stack (recoverable with `M-,'), NOT kao's jump
+list, so a SAME-buffer definition would otherwise leave nothing for `C-o' to
+walk back to.  kao 1.0's `command'-kind goto dispatch now auto-pushes a jump
+when the command switches BUFFER (kao-menu.el, D-99), so on a cross-file jump
+this push is redundant — but `kao-jump-push' dedupes an identical (buffer,
+selections) entry, so the overlap is harmless while the push still covers the
+same-buffer case.  Faithful to Kakoune+kakoune-lsp, where `gd' is a push_jump."
+    (when (kao-normal-state-p)
+      (kao-jump-push))
     (call-interactively command)
-    (when (bound-and-true-p kao-mode)
+    (when (kao-normal-state-p)
       (kao-set-selections
        (list (kao-sel-make :anchor (point) :cursor (point))))))
   (defun my/kao-goto-definition ()
@@ -1647,19 +1648,18 @@ goto specs deliberately skip the push (`kao-menu.el', the `'command' arm)."
   (defun my/kao-goto-type-definition ()
     "Go to type definition, collapsing the selection (`gy')."
     (interactive) (my/kao-goto--jump #'eglot-find-typeDefinition))
-  (setcdr (assq ?d kao--goto-specs) (list 'command #'my/kao-goto-definition))
-  (setcdr (assq ?d kao--goto-info) "definition")
-  (add-to-list 'kao--goto-specs (list ?r 'command #'my/kao-goto-references) t)
-  (add-to-list 'kao--goto-info '(?r . "references") t)
-  (add-to-list 'kao--goto-specs (list ?y 'command #'my/kao-goto-type-definition) t)
-  (add-to-list 'kao--goto-info '(?y . "type definition") t)
+  (kao-goto-define ?d 'command #'my/kao-goto-definition      "definition")
+  (kao-goto-define ?r 'command #'my/kao-goto-references      "references")
+  (kao-goto-define ?y 'command #'my/kao-goto-type-definition "type definition")
 
   ;; --- vs : select the visible part of the buffer -------------------------
   ;; Kakoune's `select-view' (bound `v s'): there it zeroes scrolloff then
   ;; `gtGbGl' (window-top -> extend window-bottom -> extend line-end).  Here we
-  ;; just span window-start..end-of-last-visible-line as one selection.  The
-  ;; view menu (`kao--view-table') is another fixed alist; entries are
-  ;; (KEY . FN) and FN is called with the count, so the fn takes an ignored arg.
+  ;; just span window-start..end-of-last-visible-line as one selection.  kao 1.0
+  ;; exposes `kao-view-define' (KEY FN DOC) as the public registrar for the
+  ;; `v'/`V' menu (upserting table + autoinfo together); FN is called with the
+  ;; count, so the fn takes an ignored arg.  The menu only fires in the displayed
+  ;; buffer, so window-start/-end are always live — no displayed-p guard needed.
   (defun my/kao-select-view (&optional _n)
     "Select the visible part of the buffer (Kakoune `select-view', `v s').
 Anchored at the first visible line; the cursor lands on the last FULLY
@@ -1667,19 +1667,17 @@ visible line so the window does not scroll.  `window-end' counts a
 partially-visible bottom line, and mirroring the cursor onto it would pull
 point — and the view — down a line, so back up to the last whole line."
     (interactive)
-    (when (kao-menu--displayed-p)
-      (let* ((beg (window-start))
-             (cursor
-              (save-excursion
-                (goto-char (min (point-max) (max beg (1- (window-end nil t)))))
-                (while (and (> (line-beginning-position) beg)
-                            (not (pos-visible-in-window-p (line-end-position))))
-                  (forward-line -1))
-                (line-end-position))))
-        (kao-set-selections
-         (list (kao-sel-make :anchor beg :cursor cursor))))))
-  (add-to-list 'kao--view-table (cons ?s #'my/kao-select-view) t)
-  (add-to-list 'kao--view-info '(?s . "select visible region") t)
+    (let* ((beg (window-start))
+           (cursor
+            (save-excursion
+              (goto-char (min (point-max) (max beg (1- (window-end nil t)))))
+              (while (and (> (line-beginning-position) beg)
+                          (not (pos-visible-in-window-p (line-end-position))))
+                (forward-line -1))
+              (line-end-position))))
+      (kao-set-selections
+       (list (kao-sel-make :anchor beg :cursor cursor)))))
+  (kao-view-define ?s #'my/kao-select-view "select visible region")
 
   ;; --- SPC , = buffers, SPC SPC = files (project-aware) -------------------
   ;; Kakoune's `SPC ,' (buffer picker) and `SPC <space>' (file picker).  In a
