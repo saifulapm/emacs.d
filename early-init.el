@@ -14,11 +14,18 @@
     					(lambda nil
                 (setq gc-cons-threshold original-gc-cons-threshold))))
 
-;; Paint the frame in the dark theme's colors before any package or
-;; theme loads, so startup doesn't flash white before `modus-vivendi'
-;; takes over.  Values mirror `init.el' overrides:
-;;   bg-main "#181818"  (modus-vivendi-palette-overrides)
-;;   fg-main "#ffffff"  (modus-vivendi default)
+;; NO `background-color'/`foreground-color' here — the theme owns colors.
+;; Colors set as frame parameters become *frame-local* default-face settings,
+;; which shadow whatever `load-theme' installs globally, for the life of the
+;; frame.  Pinning "#181818" here therefore didn't just pre-paint the frame,
+;; it made `modus-operandi' unusable: every emacsclient frame kept the dark
+;; background while wearing the light theme's foreground palette (grey-on-black
+;; text, white mode line).  These used to pre-paint the frame dark so startup
+;; wouldn't flash white; under the daemon that bought nothing anyway — client
+;; frames are created long after the theme is loaded, so there is no flash to
+;; hide — and it cost a permanently mispainted frame whenever the light theme
+;; won.  A direct, non-daemon `emacs' may now flash light for the length of
+;; init; that is the whole of the regression.
 ;; `ns-appearance' + `ns-transparent-titlebar' keep the macOS title
 ;; bar dark too — without them the bar paints light at launch.
 ;; No frame size set here — Emacs uses its native default and macOS owns the
@@ -29,8 +36,6 @@
                                    (right-fringe . 8)
                                    (bottom-divider-width . 0)
                                    (right-divider-width . 1)
-                                   (background-color . "#181818")
-                                   (foreground-color . "#ffffff")
                                    (ns-appearance . dark)
                                    (ns-transparent-titlebar . t))
               initial-frame-alist default-frame-alist

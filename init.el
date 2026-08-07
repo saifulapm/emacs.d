@@ -55,13 +55,35 @@
 
 (use-package functions
   :no-require
-	:functions (dbus-color-theme-dark-p mac-os-color-theme-dark-p)
+	:functions (dbus-color-scheme mac-os-color-theme-dark-p)
   :preface
+  (defun gsettings-color-scheme-dark-p ()
+    "Return non-nil when GSettings reports a dark color-scheme.
+Fallback for `dark-mode-enabled-p' when the XDG desktop portal can't
+answer.  Under systemd, `emacs.service' and `xdg-desktop-portal.service'
+routinely activate in the same second, and the portal spends a moment
+picking a Settings backend before it will serve a `Read' — so a daemon
+launched at login asks too early, the D-Bus call errors, and we'd
+otherwise fall through to the light theme.  `gsettings' reads dconf
+directly with no service to race."
+    (string-match-p
+     "prefer-dark"
+     (or (ignore-errors
+           (shell-command-to-string
+            "gsettings get org.gnome.desktop.interface color-scheme"))
+         "")))
   (defun dark-mode-enabled-p ()
     "Check if dark mode is enabled."
     (cond ((file-exists-p (expand-file-name "~/.dark-mode")) t)
           ((featurep 'mac-os) (mac-os-color-theme-dark-p))
-          ((featurep 'dbus) (dbus-color-theme-dark-p))
+          ;; `dbus-color-scheme' answers nil when the portal *failed*, as
+          ;; opposed to when it said light — the two must not collapse into
+          ;; the same "not dark", or a startup race silently means light.
+          ((featurep 'dbus)
+           (pcase (dbus-color-scheme)
+             ('dark t)
+             ('light nil)
+             (_ (gsettings-color-scheme-dark-p))))
           (t nil)))
   (defun memoize (fn)
     "Return a memoized version of FN.
@@ -609,16 +631,25 @@ and pollutes daemon stderr."
       (if (equal (car value) '1)
           (load-theme local-config-dark-theme t)
         (load-theme local-config-light-theme t))))
-  (defun dbus-color-theme-dark-p ()
-    (equal '1 (caar (dbus-ignore-errors
-                      (dbus-call-method
-                       :session
-                       "org.freedesktop.portal.Desktop"
-                       "/org/freedesktop/portal/desktop"
-                       "org.freedesktop.portal.Settings"
-                       "Read"
-                       "org.freedesktop.appearance"
-                       "color-scheme")))))
+  (defun dbus-color-scheme ()
+    "Return the portal's color-scheme as `dark', `light', or nil.
+nil means \"couldn't ask\" — the portal isn't up yet or the call
+errored — which is deliberately distinct from `light', so callers can
+fall back instead of quietly treating a failed probe as a light desktop.
+Per the XDG appearance spec: 0 = no preference, 1 = prefer dark,
+2 = prefer light."
+    (pcase (caar (dbus-ignore-errors
+                   (dbus-call-method
+                    :session
+                    "org.freedesktop.portal.Desktop"
+                    "/org/freedesktop/portal/desktop"
+                    "org.freedesktop.portal.Settings"
+                    "Read"
+                    "org.freedesktop.appearance"
+                    "color-scheme")))
+      (1 'dark)
+      ((or 0 2) 'light)
+      (_ nil)))
   :config
   (dbus-ignore-errors
    (dbus-register-signal :session
@@ -696,7 +727,15 @@ use\" error that crashes the daemon."
 
 (use-package modus-themes
   :after modus-themes
-  :hook (after-init . load-modus)
+  ;; In daemon mode `after-init' runs while the session is still coming up, so
+  ;; the color-scheme probe can lose the race against `xdg-desktop-portal'
+  ;; (see `gsettings-color-scheme-dark-p') and settle on the wrong theme for
+  ;; the life of the daemon.  Re-assert per client frame, like `setup-fonts'
+  ;; and `my/disable-cursor-blink' above: by the time you open a frame the
+  ;; portal has long been answering.  `load-modus' is a no-op when the right
+  ;; theme is already enabled, so this costs nothing on subsequent connects.
+  :hook ((after-init . load-modus)
+         (server-after-make-frame . load-modus))
   :no-require
   :custom
   (modus-themes-common-palette-overrides
@@ -731,12 +770,20 @@ use\" error that crashes the daemon."
      (underline-link-symbolic unspecified)
      ,@modus-themes-preset-overrides-faint))
   :config
-  (defun load-modus ()
-    (load-theme
-     (if (dark-mode-enabled-p)
-         local-config-dark-theme
-       local-config-light-theme)
-     'no-confirm)))
+  (defun load-modus (&rest _)
+    "Enable the theme matching the system color-scheme.
+Idempotent: returns immediately when that theme is already the enabled
+one, so re-running per frame is free.  The counterpart theme is disabled
+first — `load-theme' only stacks, and leaving the old one enabled
+underneath leaks its faces through wherever the new theme doesn't
+override them."
+    (let* ((dark (dark-mode-enabled-p))
+           (theme (if dark local-config-dark-theme local-config-light-theme))
+           (other (if dark local-config-light-theme local-config-dark-theme)))
+      (when (memq other custom-enabled-themes)
+        (disable-theme other))
+      (unless (memq theme custom-enabled-themes)
+        (load-theme theme 'no-confirm)))))
 
 (use-package uniquify
   :defer t
