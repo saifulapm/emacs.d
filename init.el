@@ -243,31 +243,6 @@ when upgrading the package."
                          (#xf500  . #xfd46)    ; Material Design (BMP)
                          (#xf0001 . #xf1af0))) ; Material Design (SMP)
           (set-fontset-font t range spec nil 'prepend)))))
-  (defun my/desktop-text-size ()
-    "Desktop text-size knob (px) from ~/.config/qshell/theme-override.toml.
-`text-size' (dotfiles bin) writes `[font] size' there and the whole desktop
-scales from it — shell, foot, GTK.  12 is the anchor that maps onto the
-tuned Linux `:height' of 120 below, so `height = 10 * knob'.  Returns 12
-when the file or key is absent (theme default)."
-    (or (let ((file (expand-file-name "~/.config/qshell/theme-override.toml")))
-          (when (file-readable-p file)
-            (with-temp-buffer
-              (insert-file-contents file)
-              (goto-char (point-min))
-              (when (re-search-forward "^\\[font\\][ \t]*$" nil t)
-                (let ((end (or (save-excursion (re-search-forward "^\\[" nil t))
-                               (point-max))))
-                  (when (re-search-forward
-                         "^[ \t]*size[ \t]*=[ \t]*\\([0-9]+\\)" end t)
-                    (string-to-number (match-string 1))))))))
-        12))
-
-  (defun my/apply-desktop-text-size ()
-    "Re-apply the desktop text-size knob to the running frames.
-`text-size' pokes this over emacsclient after changing the knob."
-    (interactive)
-    (setup-fonts))
-
   (defun setup-fonts ()
     ;; Mirror ghostty: font-size = 15pt, adjust-cell-height = 50%.
     ;; Emacs `:height' is 1/10 pt -> 150.
@@ -293,9 +268,7 @@ when the file or key is absent (theme default)."
     (let ((mono (cond ((font-installed-p "Maple Mono Ghostty") "Maple Mono Ghostty")
                       ((font-installed-p "Maple Mono") "Maple Mono")
                       ((font-installed-p "JetBrains Mono") "JetBrains Mono")))
-          ;; Linux height rides the desktop text-size knob (12 -> 120); macOS
-          ;; keeps its fixed Retina-tuned value.
-          (height (if (eq system-type 'gnu/linux) (* 10 (my/desktop-text-size)) 150)))
+          (height (if (eq system-type 'gnu/linux) 120 150)))
       (when mono
         ;; Maple Mono everywhere: default, fixed-pitch AND variable-pitch all
         ;; use the same mono family (so headings/prose stay monospace too).
