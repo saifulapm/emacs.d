@@ -20,6 +20,10 @@ transient/*
 !lisp/
 !lisp/*
 
+# Keep themes folder (qshell desktop-synced themes)
+!themes/
+!themes/*
+
 !.claude/
 !.claude/*
 !.gitignore

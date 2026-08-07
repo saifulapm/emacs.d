@@ -812,6 +812,43 @@ override them."
       (unless (memq theme custom-enabled-themes)
         (load-theme theme 'no-confirm)))))
 
+(use-package qshell-theme
+  :no-require
+  :after modus-themes
+  ;; Desktop-synced theming (Linux + qshell only): the dotfiles' theme system
+  ;; renders the active theme's palette to ~/.local/state/qshell/emacs-theme.el,
+  ;; and themes/qshell-{dark,light}-theme.el are Modus derivatives that read it.
+  ;; Wired only when that file exists, so machines without the qshell desktop
+  ;; (the Mac) keep stock Modus untouched.  Polarity still flows through
+  ;; `load-modus' and the portal signal — the desktop flips the system
+  ;; color-scheme with each theme, and both qshell themes track it.
+  :config
+  (defconst qshell-theme-state-file
+    (expand-file-name "~/.local/state/qshell/emacs-theme.el")
+    "Palette file bin/theme-apply renders from the desktop theme.")
+  (defun qshell-theme--wire ()
+    "Point the local-config themes at the qshell pair when the palette exists."
+    (when (file-exists-p qshell-theme-state-file)
+      (setq local-config-dark-theme 'qshell-dark
+            local-config-light-theme 'qshell-light)))
+  (defun qshell-theme-refresh ()
+    "Re-apply the qshell theme after the desktop palette changed.
+theme-apply pokes this over emacsclient on every desktop theme switch.
+`load-modus' first, for a polarity flip (loading the counterpart theme
+re-reads the palette on its way in); then an unconditional `load-theme'
+of whichever qshell theme ends up active, because a same-polarity
+switch is exactly the case `load-modus' skips as already enabled —
+`load-theme', unlike `enable-theme', re-evaluates the theme file."
+    (interactive)
+    (qshell-theme--wire)
+    (load-modus)
+    (let ((active (seq-find (lambda (theme) (memq theme '(qshell-dark qshell-light)))
+                            custom-enabled-themes)))
+      (when active (load-theme active 'no-confirm))))
+  (add-to-list 'custom-theme-load-path
+               (expand-file-name "themes/" user-emacs-directory))
+  (qshell-theme--wire))
+
 (use-package uniquify
   :defer t
   :custom
