@@ -394,6 +394,12 @@ somebody's real iCloud account.
 sync, done. `INBOX` is always live and needs no line: mail leaving a box has to
 have somewhere to come home to.
 
+An enabled box exists **whether or not it has any mail in it**. Creating the
+folder only when there is something to file would be the obvious economy and it
+breaks the half of this that makes the phone an input device — you cannot drag
+a message into a folder that is not there, so an empty Reply Later would be a
+Reply Later you could never file to.
+
 ### What actually happens on the wire
 
 mbsync has no cross-folder MOVE and never has (isync 1.5.1). A local move is an
@@ -412,10 +418,21 @@ run. A message found in two tracked folders at once is skipped rather than
 guessed at, or a Bubble Up whose expunge failed would be un-bubbled by the very
 sync trying to file it.
 
-Verified on this mailbox, one box at a time: `HEY/Bubbled` migrated with tags,
-read state and `attachment` intact, iCloud created the folder from `Create
-Both`, the message left the server's INBOX and a second full sync did not pull
-it back.
+Verified on this mailbox, one box at a time. `HEY/Bubbled` first, one message:
+tags, read state and `attachment` intact, iCloud created the folder from
+`Create Both`, the message left the server's INBOX and a second full sync did
+not pull it back. Then `HEY/Screener`, 219 messages in 236s — the identical set
+of message ids arrived, all 219 still unread with no `S` flag written, every
+one given a fresh `,U=` by mbsync (so no partial push), and the server's INBOX
+went 1868 → 1649. Every mailbox count unchanged throughout.
+
+The reverse direction was proved on real mail without anything reaching iCloud:
+move one file into `HEY/ReplyLater` under a brand-new name (which is what a
+phone move actually produces — mbsync downloads, it does not rename), run the
+bridge, and the message picks up `replylater` while `unread`, `seen` and its
+`wf/…` stage are left alone, and is *not* moved back. Put the file back under
+its original name and the bridge undoes it: same tags, same UID, no sync
+traffic at all.
 
 ### What this does not fix
 
