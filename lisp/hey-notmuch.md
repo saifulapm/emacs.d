@@ -418,7 +418,13 @@ run. A message found in two tracked folders at once is skipped rather than
 guessed at, or a Bubble Up whose expunge failed would be un-bubbled by the very
 sync trying to file it.
 
-Verified on this mailbox, one box at a time. `HEY/Bubbled` first, one message:
+Migrated one box at a time, each verified before the next. `HEY/Bubbled` (1),
+then `HEY/Screener` (219), then the four empty boxes, then `Archive` (1523).
+All eight rules are live and every one now reports nothing left to move — and
+**the server's INBOX holds 126 messages, all of them `tag:inbox and
+tag:screened`, and nothing else at all.**
+
+`HEY/Bubbled` first, one message:
 tags, read state and `attachment` intact, iCloud created the folder from
 `Create Both`, the message left the server's INBOX and a second full sync did
 not pull it back. Then `HEY/Screener`, 219 messages in 236s — the identical set
@@ -433,6 +439,12 @@ bridge, and the message picks up `replylater` while `unread`, `seen` and its
 `wf/…` stage are left alone, and is *not* moved back. Put the file back under
 its original name and the bridge undoes it: same tags, same UID, no sync
 traffic at all.
+
+`Archive` last, and it is the one that shows the scale honestly: 1523 messages,
+35s of local moves and 28 minutes of IMAP, with mbsync's own tally reading
+`Far: +1523 *1523 #0 -1523` — appended and expunged in exactly matching
+numbers. Not one message was marked read or unread by it, and the identical set
+of ids arrived.
 
 ### What this does not fix
 
