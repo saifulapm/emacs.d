@@ -85,6 +85,22 @@ directly with no service to race."
              ('light nil)
              (_ (gsettings-color-scheme-dark-p))))
           (t nil)))
+  (defun load-modus-polarity (dark)
+    "Enable the DARK theme or the light one, disabling its counterpart.
+Both entry points funnel through here — the polling probe
+\(`load-modus', on `after-init' and each server frame) and the portal's
+`SettingChanged' signal (`color-scheme-changed').  They must, because
+`load-theme' only ever STACKS: enabling the new polarity does not
+disable the old one, so without the `disable-theme' below a single flip
+leaves BOTH themes in `custom-enabled-themes' and the stale one leaks
+its faces through wherever the new one leaves a face unspecified.
+Idempotent, so re-running per frame or per signal costs nothing."
+    (let ((theme (if dark local-config-dark-theme local-config-light-theme))
+          (other (if dark local-config-light-theme local-config-dark-theme)))
+      (when (memq other custom-enabled-themes)
+        (disable-theme other))
+      (unless (memq theme custom-enabled-themes)
+        (load-theme theme 'no-confirm))))
   (defun memoize (fn)
     "Return a memoized version of FN.
 FN must be referentially transparent.  Results are cached by `equal' on args."
@@ -623,12 +639,13 @@ and pollutes daemon stderr."
   :commands (dbus-register-signal dbus-call-method)
   :preface
   (defun color-scheme-changed (path var value)
-    "DBus handler to detect when the color-scheme has changed."
+    "DBus handler to detect when the color-scheme has changed.
+Per the XDG appearance spec, 1 = prefer dark.  Delegates to
+`load-modus-polarity' rather than calling `load-theme' itself, so the
+outgoing theme is disabled instead of left stacked underneath."
     (when (and (string-equal path "org.freedesktop.appearance")
                (string-equal var "color-scheme"))
-      (if (equal (car value) '1)
-          (load-theme local-config-dark-theme t)
-        (load-theme local-config-light-theme t))))
+      (load-modus-polarity (equal (car value) '1))))
   (defun dbus-color-scheme ()
     "Return the portal's color-scheme as `dark', `light', or nil.
 nil means \"couldn't ask\" — the portal isn't up yet or the call
@@ -733,18 +750,10 @@ Per the XDG appearance spec: 0 = no preference, 1 = prefer dark,
   :config
   (defun load-modus (&rest _)
     "Enable the theme matching the system color-scheme.
-Idempotent: returns immediately when that theme is already the enabled
-one, so re-running per frame is free.  The counterpart theme is disabled
-first — `load-theme' only stacks, and leaving the old one enabled
-underneath leaks its faces through wherever the new theme doesn't
-override them."
-    (let* ((dark (dark-mode-enabled-p))
-           (theme (if dark local-config-dark-theme local-config-light-theme))
-           (other (if dark local-config-light-theme local-config-dark-theme)))
-      (when (memq other custom-enabled-themes)
-        (disable-theme other))
-      (unless (memq theme custom-enabled-themes)
-        (load-theme theme 'no-confirm)))))
+Probes `dark-mode-enabled-p' and hands the answer to
+`load-modus-polarity', which disables the counterpart theme and is
+idempotent — so re-running on every server frame is free."
+    (load-modus-polarity (dark-mode-enabled-p))))
 
 (use-package qshell-theme
   :no-require
