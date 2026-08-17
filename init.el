@@ -885,9 +885,26 @@ switch is exactly the case `load-modus' skips as already enabled —
   (ediff-split-window-function 'split-window-horizontally))
 
 ;; HEY.com-style email: notmuch + mbsync + msmtp.  Backend config lives in
-;; ~/.mbsyncrc, ~/.notmuch-config, ~/.msmtprc and ~/Mail/.notmuch/hooks/.
+;; ~/.mbsyncrc, ~/.config/notmuch/default/config, ~/.msmtprc and the routing
+;; hook in ~/.config/notmuch/hooks/ — all chezmoi-managed in ~/.dotfiles.
+;; lisp/hey-notmuch.md documents the whole thing.
+;;
+;; One `load' per module rather than one big file: each is a feature you could
+;; delete on its own, and every one of them defers notmuch itself, so loading
+;; all nine costs nothing until `C-c m'.  hey-notmuch must come first — the
+;; others `require' it for the shared plumbing and add their keys to its `H'
+;; keymap.
 (add-to-list 'load-path (locate-user-emacs-file "lisp"))
-(load (locate-user-emacs-file "lisp/hey-notmuch") :noerror)
+(dolist (module '("hey-notmuch"    ; the boxes, screening, the piles, `H'
+                  "hey-notes"      ; notes on a thread, a contact, yourself
+                  "hey-labels"     ; labels, collections, workflow boards
+                  "hey-files"      ; every attachment, without hunting threads
+                  "hey-contact"    ; Mission Control: one page per sender
+                  "hey-flow"       ; Power Through · Focus & Reply · Read Together
+                  "hey-clips"      ; the clip library
+                  "hey-compose"    ; snippets, Name Tag, Away, big files
+                  "hey-thread"))   ; seen, mute, rename, merge, trackers
+  (load (locate-user-emacs-file (concat "lisp/" module)) :noerror))
 
 (use-package magit
   :ensure t
