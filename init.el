@@ -10,17 +10,18 @@
   :config
   (load-file (locate-user-emacs-file "early-init.el")))
 
-;; Needed in any launch mode: `brew services' generates a plist with no
-;; `EnvironmentVariables', so the daemon inherits launchd's minimal
-;; /usr/bin:/bin PATH.  Run unconditionally (don't gate on
-;; `window-system') — a `--fg-daemon' has no window system but still
-;; needs Homebrew tools (gls, hunspell, intelephense, …).
+;; Belt-and-braces PATH: `emacs.service' is session-tied so it starts after
+;; niri-session has imported the login-shell environment, but a daemon started
+;; any other way (plain `systemctl --user start emacs', a manual
+;; `emacs --fg-daemon') inherits the user manager's bare PATH and then can't
+;; find ~/.local/bin, the mise shims, hunspell or intelephense.  Run
+;; unconditionally (don't gate on `window-system') — a `--fg-daemon' has no
+;; window system but still needs the tools.
 (use-package exec-path-from-shell
   :ensure t
-  :when (memq system-type '(darwin gnu/linux))
   :custom
   ;; Login shell only — skip the interactive `-i' pass that sources the
-  ;; whole ~/.zshrc on every startup (~1000ms -> ~50ms).
+  ;; whole fish config on every startup (~1000ms -> ~50ms).
   (exec-path-from-shell-arguments '("-l"))
   (exec-path-from-shell-check-startup-files nil)
   :init
@@ -55,7 +56,7 @@
 
 (use-package functions
   :no-require
-	:functions (dbus-color-scheme mac-os-color-theme-dark-p)
+	:functions (dbus-color-scheme)
   :preface
   (defun gsettings-color-scheme-dark-p ()
     "Return non-nil when GSettings reports a dark color-scheme.
@@ -75,7 +76,6 @@ directly with no service to race."
   (defun dark-mode-enabled-p ()
     "Check if dark mode is enabled."
     (cond ((file-exists-p (expand-file-name "~/.dark-mode")) t)
-          ((featurep 'mac-os) (mac-os-color-theme-dark-p))
           ;; `dbus-color-scheme' answers nil when the portal *failed*, as
           ;; opposed to when it said light — the two must not collapse into
           ;; the same "not dark", or a startup race silently means light.
@@ -201,10 +201,10 @@ FN must be referentially transparent.  Results are cached by `equal' on args."
 Default `15' (the Maple Mono size) renders icon glyphs at their native
 width, which is *wider* than Maple Mono's cell — the glyph overflows
 into the next cell, the trailing space `eza --icons' emits gets eaten,
-and icons look heavier/blockier than the same bytes rendered in
-Ghostty (where CoreText scales the fallback glyph to the cell).
+and icons look heavier/blockier than the same bytes rendered in a
+real terminal (which scales the fallback glyph to the cell).
 Setting this 1-2pt below the default face size shrinks the glyph to
-sit cleanly inside one Maple Mono cell, matching Ghostty's look.
+sit cleanly inside one Maple Mono cell, matching the terminal's look.
 Bump up if icons look too small; drop further if they still overflow.")
   (defun setup-nerd-icons-fontset ()
     "Route Nerd-Font codepoint ranges to `Symbols Nerd Font Mono'.
@@ -262,13 +262,10 @@ when upgrading the package."
     ;; level doesn't work — the features have to live in the font file.
     ;; Falls back to plain `Maple Mono' (variable, no features baked) and
     ;; then `JetBrains Mono' when the bake hasn't been run yet.
-    ;; Linux renders the same `:height' visibly larger than macOS (no Retina
-    ;; HiDPI scaling, different DPI assumptions), so dial it down there to
-    ;; match the macOS look.
     (let ((mono (cond ((font-installed-p "Maple Mono Ghostty") "Maple Mono Ghostty")
                       ((font-installed-p "Maple Mono") "Maple Mono")
                       ((font-installed-p "JetBrains Mono") "JetBrains Mono")))
-          (height (if (eq system-type 'gnu/linux) 120 150)))
+          (height 120))
       (when mono
         ;; Maple Mono everywhere: default, fixed-pitch AND variable-pitch all
         ;; use the same mono family (so headings/prose stay monospace too).
@@ -347,7 +344,8 @@ when upgrading the package."
   ;; The font itself is wired into the global fontset by
   ;; `setup-nerd-icons-fontset' in the `font' block above, so we do
   ;; NOT call `nerd-icons-install-fonts' here — the font is already
-  ;; present at `~/Library/Fonts/SymbolsNerdFontMono-Regular.ttf'.
+  ;; installed system-wide (check with
+  ;; `fc-list | grep "Symbols Nerd Font Mono"').
   :custom
   (nerd-icons-font-family "Symbols Nerd Font Mono"))
 
@@ -595,11 +593,11 @@ and pollutes daemon stderr."
 (use-package menu-bar
   :config
   (menu-bar-mode -1)
-  ;; `menu-bar-mode -1' hides the menu globally, but on a macOS daemon creating
-  ;; a GUI frame re-enables it, so later text-terminal frames (`emacsclient -t')
+  ;; `menu-bar-mode -1' hides the menu globally, but creating a GUI frame on a
+  ;; daemon can re-enable it, so later text-terminal frames (`emacsclient -t')
   ;; come up WITH a menu bar.  The old `:unless (display-graphic-p)' guard can't
   ;; help — on a daemon it runs once, with no frame to test.  Force the menu off
-  ;; per TTY frame instead; a no-op on GUI frames, and works on macOS + Linux.
+  ;; per TTY frame instead; a no-op on GUI frames.
   (defun my/menu-bar-hide-on-tty (&optional frame)
     "Remove the menu bar on FRAME when it is a text terminal."
     (unless (display-graphic-p frame)
@@ -658,43 +656,6 @@ Per the XDG appearance spec: 0 = no preference, 1 = prefer dark,
                          "org.freedesktop.portal.Settings"
                          "SettingChanged"
                          #'color-scheme-changed)))
-
-(use-package mac-os
-  :no-require               ; there is no `mac-os.el' on disk — this
-                            ; package is purely a `(provide 'mac-os)'
-                            ; flag for `dark-mode-enabled-p'.  Without
-                            ; `:no-require', use-package emits
-                            ; "Cannot load mac-os" and skips `:config'
-                            ; (so the `provide' never runs, the dark-
-                            ; mode probe falls back, and the wrong
-                            ; theme loads).
-  :when (fboundp 'ns-do-applescript)
-  :preface
-  (defun mac-os-color-theme-dark-p ()
-    "Return non-nil when macOS is in dark mode.
-Uses `defaults read' instead of `ns-do-applescript' so it works
-during `--fg-daemon' startup, where NS isn't yet initialised and
-AppleScript signals an unrecoverable \"Window system is not in
-use\" error that crashes the daemon."
-    (string-prefix-p
-     "Dark"
-     (or (ignore-errors
-           (string-trim
-            (shell-command-to-string
-             "defaults read -g AppleInterfaceStyle 2>/dev/null")))
-         "")))
-  (defun mac-os-appearance-changed (appearance)
-    "MacOS handler to detect when the color-scheme has changed."
-    (pcase appearance
-      ('dark (load-theme local-config-dark-theme t))
-      ('light (load-theme local-config-light-theme t))))
-  :config
-  ;; `:preface' runs unconditionally even when `:when' is false, so
-  ;; `(provide 'mac-os)' must live in `:config' — otherwise on Linux
-  ;; `(featurep 'mac-os)' is t and `mac-os-color-theme-dark-p' gets
-  ;; called, hitting void `ns-do-applescript' during init.
-  (provide 'mac-os)
-  (add-hook 'ns-system-appearance-change-functions 'mac-os-appearance-changed))
 
 (use-package modus-themes
   :ensure t
@@ -788,13 +749,13 @@ override them."
 (use-package qshell-theme
   :no-require
   :after modus-themes
-  ;; Desktop-synced theming (Linux + qshell only): the dotfiles' theme system
+  ;; Desktop-synced theming (qshell only): the dotfiles' theme system
   ;; renders the active theme's palette to ~/.local/state/qshell/emacs-theme.el,
   ;; and themes/qshell-{dark,light}-theme.el are Modus derivatives that read it.
-  ;; Wired only when that file exists, so machines without the qshell desktop
-  ;; (the Mac) keep stock Modus untouched.  Polarity still flows through
-  ;; `load-modus' and the portal signal — the desktop flips the system
-  ;; color-scheme with each theme, and both qshell themes track it.
+  ;; Wired only when that file exists, so a machine without the qshell desktop
+  ;; (a server, a fresh clone) keeps stock Modus untouched.  Polarity still
+  ;; flows through `load-modus' and the portal signal — the desktop flips the
+  ;; system color-scheme with each theme, and both qshell themes track it.
   :config
   (defconst qshell-theme-state-file
     (expand-file-name "~/.local/state/qshell/emacs-theme.el")
@@ -1024,9 +985,6 @@ switch is exactly the case `load-modus' skips as already enabled —
     "-lXhv --group-directories-first")
   (defvar dired-listing-switches-dotfiles
     "-lAXhv --group-directories-first")
-  :init
-  (when (eq system-type 'darwin)
-    (setq insert-directory-program "gls"))
   :custom
   (dired-listing-switches dired-listing-switches-dotfiles)
   ;; Quality-of-life behaviour, no extra packages required:
@@ -1070,9 +1028,8 @@ switch is exactly the case `load-modus' skips as already enabled —
   ;; `dired-guess-shell-alist-user' table that `!' consults for defaults.
   :after dired
   :config
-  (when (eq system-type 'darwin)
-    ;; `!' (dired-do-shell-command) defaults to opening with the macOS app.
-    (setq dired-guess-shell-alist-user '((".*" "open")))))
+  ;; `!' (dired-do-shell-command) defaults to the desktop's registered handler.
+  (setq dired-guess-shell-alist-user '((".*" "xdg-open"))))
 
 (use-package diredfl
   :ensure t
@@ -1258,8 +1215,8 @@ Creates SECTION as a child heading if it does not exist yet."
           ("a" . org-agenda)
           ("j" . org-clock-goto))
   :custom
-  ;; --- paths (org lives in iCloud Drive = $SYNC_DIR/org, synced across devices) ---
-  (org-directory "~/Library/Mobile Documents/com~apple~CloudDocs/org")
+  ;; --- paths ---
+  (org-directory "~/Documents/org")
   (org-default-notes-file (expand-file-name "inbox.org" org-directory))
   (org-agenda-files (list org-directory))   ; scans org-directory top level; archive/ excluded
   ;; --- startup / src blocks ---
@@ -1470,8 +1427,8 @@ Creates SECTION as a child heading if it does not exist yet."
 
 (use-package browse-url
   :custom
-  ;; Open links in the system default browser (`open' on macOS, the platform
-  ;; handler elsewhere).  eww stays a keystroke away via `M-x eww' /
+  ;; Open links in the system default browser (via `xdg-open' / the XDG
+  ;; handler).  eww stays a keystroke away via `M-x eww' /
   ;; `M-x eww-browse-url'.
   (browse-url-browser-function #'browse-url-default-browser)
   ;; …and eww is the "secondary" browser, so anything offering an alternate-
@@ -1679,8 +1636,8 @@ Creates SECTION as a child heading if it does not exist yet."
   :config
   ;; --- System clipboard ----------------------------------------------------
   ;; kao's y / d / c / p ride the kill-ring; syncing the kill-ring with the
-  ;; macOS pasteboard makes every kao yank/paste use the system clipboard, and
-  ;; the Mac port's default Cmd-c / Cmd-x / Cmd-v ride the same pasteboard.
+  ;; Wayland clipboard makes every kao yank/paste use the system clipboard,
+  ;; shared with every other app in the session.
   (setq select-enable-clipboard t)
 
   ;; --- gw : jump to a word with avy (Kakoune `gw' = hop-kak-words) ---------
@@ -1975,7 +1932,7 @@ Excludes .org_archive and backups.  Modeled on Prot's `prot-org-file-prompt'."
   (when (require 'kao-treesit nil t)
     (setq kao-treesit-queries-dir
           '("~/.config/helix/runtime/queries"
-            "/usr/local/share/kak/runtime/queries"))
+            "~/.local/share/kak/queries"))
     (kao-treesit-setup t))
   ;; --- Org tweaks for kao normal state (via the public per-mode `kao-define-key'
   ;;     seam, which shadows `kao-normal-state-map' in org buffers) ---
@@ -2156,7 +2113,7 @@ Falls back to the abbreviated absolute path when the file isn't in a project."
   :ensure t
   :preface
   (defun my/ghostel-new ()
-    "Always open a fresh `*ghostel*' buffer (Ghostty-style cmd-T new tab)."
+    "Always open a fresh `*ghostel*' buffer (a new terminal \"tab\")."
     (interactive)
     (let ((current-prefix-arg '(4)))
       (call-interactively #'ghostel)))
@@ -2172,10 +2129,11 @@ small gaps in inline images and TUI frames — accepted trade-off."
   (defun my/ghostel-ensure-terminfo ()
     "Install ghostel's bundled `xterm-ghostty' terminfo into `~/.terminfo'.
 The Emacs daemon builds `emacsclient -t' frames with TERM=xterm-ghostty but
-runs without $TERMINFO, so it can't see Ghostty.app's copy and dies with
-\"Terminal type xterm-ghostty is not defined\".  ~/.terminfo is searched via
-$HOME, so installing the entry there fixes it.  Idempotent — a no-op once the
-entry exists or if `tic' is missing — so a fresh Mac self-heals on first run."
+runs without $TERMINFO, and Ghostty isn't installed system-wide here, so it
+dies with \"Terminal type xterm-ghostty is not defined\".  ~/.terminfo is
+searched via $HOME, so installing the entry there fixes it.  Idempotent — a
+no-op once the entry exists or if `tic' is missing — so a fresh machine
+self-heals on first run."
     (interactive)
     (unless (seq-some (lambda (d)
                         (file-exists-p
@@ -2207,7 +2165,7 @@ output filter ghostel doesn't provide (it would hang)."
       (setenv "VISUAL" (getenv "EDITOR"))))
   :init
   ;; Self-provision the terminfo the daemon needs for `emacsclient -t' frames,
-  ;; so a new Mac just works — no manual `tic' step to remember.
+  ;; so a new machine just works — no manual `tic' step to remember.
   (my/ghostel-ensure-terminfo)
   :bind (("C-c t"   . ghostel)
          ("C-c T"   . ghostel-list-buffers)
@@ -2215,20 +2173,26 @@ output filter ghostel doesn't provide (it would hang)."
          ("t"       . ghostel-project)
          ("T"       . ghostel-project-list-buffers)
          :map ghostel-mode-map
-         ("s-t"     . my/ghostel-new)        ; cmd-T  → new tab
-         ("s-]"     . ghostel-next)          ; cmd-]  → next tab
-         ("s-["     . ghostel-previous)      ; cmd-[  → prev tab
+         ;; Tab management, inside a ghostel buffer only.  These used to be the
+         ;; Mac's `s-t' / `s-]' / `s-[' (cmd-T, cmd-], cmd-[); under niri the
+         ;; compositor grabs Mod+T, Mod+[ and Mod+] before any client sees them,
+         ;; so they live on the `C-c t' prefix instead.  Shadowing the global
+         ;; `C-c t' (= `ghostel') here costs nothing — you are already in one,
+         ;; and `C-c t n' makes another.
+         ("C-c t n" . my/ghostel-new)        ; new tab
+         ("C-c t ]" . ghostel-next)          ; next tab
+         ("C-c t [" . ghostel-previous)      ; prev tab
          :map ghostel-semi-char-mode-map
          ;; Search the materialized scrollback (20MB, set below) from the DEFAULT
          ;; input mode; C-s otherwise forwards to the shell.  Applied after
          ;; ghostel loads (and after `ghostel--rebuild-semi-char-keymap'), so the
-         ;; rebuild doesn't clobber it.  (dakra's mac-branch binding.)
+         ;; rebuild doesn't clobber it.
          ("C-s"     . consult-line))         ; fuzzy-search terminal history
   :hook (ghostel-mode . my/ghostel-restore-line-spacing)
   :custom
-  ;; Silence OSC 9 / 777 desktop notifications — macOS attributes
-  ;; AppleScript-posted banners to Script Editor, so clicking them
-  ;; is useless.  See alert.el `osx-notifier' implementation.
+  ;; Silence OSC 9 / 777 desktop notifications — long-running commands in a
+  ;; ghostel already show up in the buffer, and the banners just pile up in
+  ;; the qshell notification list.
   (ghostel-notification-function nil)
   ;; Bigger scrollback — Claude Code sessions blow past the 5MB default.
   ;; Materialized into the buffer, so consult-line/isearch reach history.
@@ -2241,9 +2205,9 @@ output filter ghostel doesn't provide (it would hang)."
                        ("dired-other-window" dired-other-window)
                        ("magit" magit-status)
                        ("message" message)))
-  ;; Let terminal programs (tmux, nvim, ssh, Claude Code) copy to the macOS
-  ;; pasteboard via OSC 52.  ghostel writes it through `gui-set-selection
-  ;; 'CLIPBOARD' (plus `kill-new'), so it reaches the real pasteboard.  Off by
+  ;; Let terminal programs (tmux, nvim, ssh, Claude Code) copy to the Wayland
+  ;; clipboard via OSC 52.  ghostel writes it through `gui-set-selection
+  ;; 'CLIPBOARD' (plus `kill-new'), so it reaches the real selection.  Off by
   ;; default for security: a rogue escape sequence in output could overwrite the
   ;; clipboard.
   (ghostel-enable-osc52 t)

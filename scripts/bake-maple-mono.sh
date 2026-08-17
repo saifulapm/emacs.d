@@ -6,9 +6,8 @@
 #
 # Idempotent: re-running just regenerates the output files.
 #
-# Requires `pyftfeatfreeze` from `opentype-feature-freezer`.
-#   macOS:  brew install pipx && pipx install opentype-feature-freezer
-#   Linux:  pipx install opentype-feature-freezer  (or apt install pipx)
+# Requires `pyftfeatfreeze` from `opentype-feature-freezer`:
+#   pipx install opentype-feature-freezer   (dnf install pipx)
 #
 # Source fonts must already be installed. Download the variable Maple Mono
 # from https://github.com/subframe7536/maple-font/releases (files named
@@ -22,19 +21,13 @@ set -euo pipefail
 # `ligature.el` instead.
 FEATURES="cv03,cv31,cv32,cv62,cv63,cv64,ss03,ss07,ss08,ss09,ss10,ss11,zero"
 
-# Source (read) and destination (write) font dirs. macOS keeps both in
-# ~/Library/Fonts (the variable Maple Mono is installed there by hand). On
-# Linux the source comes from the AUR `maplemono-variable` package, which
-# unpacks to /usr/share/fonts/MapleMono-Variable/ — read-only system path,
-# so baked output goes to the user font dir instead.
-if [[ "$(uname)" == "Darwin" ]]; then
-  SRC_DIR="$HOME/Library/Fonts"
-  DST_DIR="$HOME/Library/Fonts"
-else
-  SRC_DIR="/usr/share/fonts/MapleMono-Variable"
-  DST_DIR="$HOME/.local/share/fonts"
-  mkdir -p "$DST_DIR"
-fi
+# Source (read) and destination (write) font dirs. The variable Maple Mono is
+# unpacked by hand into ~/.local/share/fonts/maple-mono; baked output lands
+# beside it in the user font dir so fontconfig picks it up with no root.
+# Override either with the environment when the fonts live elsewhere.
+SRC_DIR="${SRC_DIR:-$HOME/.local/share/fonts/maple-mono}"
+DST_DIR="${DST_DIR:-$HOME/.local/share/fonts}"
+mkdir -p "$DST_DIR"
 
 require() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -58,7 +51,7 @@ require pyftfeatfreeze
 bake "$SRC_DIR/MapleMono[wght].ttf"        "$DST_DIR/MapleMono-Ghostty[wght].ttf"        "Regular"
 bake "$SRC_DIR/MapleMono-Italic[wght].ttf" "$DST_DIR/MapleMono-Ghostty-Italic[wght].ttf" "Italic"
 
-# Refresh the font cache on Linux so apps see the new files immediately.
+# Refresh the font cache so apps see the new files immediately.
 if command -v fc-cache >/dev/null 2>&1; then
   fc-cache -f "$DST_DIR" 2>/dev/null || true
 fi

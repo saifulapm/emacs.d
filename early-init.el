@@ -26,18 +26,14 @@
 ;; hide — and it cost a permanently mispainted frame whenever the light theme
 ;; won.  A direct, non-daemon `emacs' may now flash light for the length of
 ;; init; that is the whole of the regression.
-;; `ns-appearance' + `ns-transparent-titlebar' keep the macOS title
-;; bar dark too — without them the bar paints light at launch.
-;; No frame size set here — Emacs uses its native default and macOS owns the
-;; window geometry.  Only appearance params live in the alist.
+;; No frame size set here — niri owns the window geometry.  Only appearance
+;; params live in the alist.
 (setq-default default-frame-alist '((tool-bar-lines . 0)
                                    (vertical-scroll-bars . nil)
                                    (left-fringe . 8)
                                    (right-fringe . 8)
                                    (bottom-divider-width . 0)
-                                   (right-divider-width . 1)
-                                   (ns-appearance . dark)
-                                   (ns-transparent-titlebar . t))
+                                   (right-divider-width . 1))
               initial-frame-alist default-frame-alist
 							use-short-answers t
               frame-background-mode 'dark
@@ -74,21 +70,7 @@
   (setopt native-comp-async-report-warnings-errors 'silent)
   ;; Pause background native-compilation while on battery, so an unplugged
   ;; laptop doesn't get surprise fan spin-ups from async comp jobs (Emacs 31+).
-  (setopt native-comp-async-on-battery-power nil)
-  ;; emacs-plus links libgccjit against Homebrew gcc, whose internal
-  ;; lib dir (containing libemutls_w.a) isn't on ld's default search
-  ;; path.  Without LIBRARY_PATH, runtime trampoline compiles fail
-  ;; with `ld: library 'emutls_w' not found' and a launchd-started
-  ;; daemon never reaches `server-start'.  Wildcards survive macOS
-  ;; upgrades (darwinNN) and gcc major bumps.
-  (when (eq system-type 'darwin)
-    (when-let* ((gcc-libpath
-                 (car (file-expand-wildcards
-                       "/opt/homebrew/opt/gcc/lib/gcc/current/gcc/aarch64-apple-darwin*/*/"))))
-      (setenv "LIBRARY_PATH"
-              (if-let* ((existing (getenv "LIBRARY_PATH")))
-                  (concat gcc-libpath ":" existing)
-                gcc-libpath)))))
+  (setopt native-comp-async-on-battery-power nil))
 
 (require 'package)
 (add-to-list 'package-archives '("melpa" . "https://melpa.org/packages/") t)
