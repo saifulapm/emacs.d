@@ -279,6 +279,7 @@ not know is refused at the server.
 | `H , s` | **Speakeasy** — show the code; `C-u` regenerates it |
 | `H , a` | **Away** — the out-of-office autoresponder |
 | `H , n` | **Name Tag** — your signature |
+| `H , f` | **Folder map** — what the phone sees, and what a sync would move |
 | `H , N` | open `notes.org` |
 | `H , S` | open `snippets.org` |
 
@@ -323,19 +324,139 @@ string). Verified against real mail here: an Anthropic newsletter's five
 
 ---
 
+## The phone
+
+A box here is a notmuch tag, and IMAP cannot see tags. So on the iPhone there
+were no boxes: every newsletter, every receipt and — the part that actually
+hurt — every unscreened stranger landed in one INBOX and lit up the lock
+screen. The Screener's whole promise held in Emacs and was worth nothing on
+the device you carry.
+
+The fix is a tag → folder map, but the folders are not the point:
+
+> **Make INBOX mean the Imbox.** iOS Mail only raises notifications for INBOX,
+> so moving everything else out of it hands the phone the Screener for free —
+> no app, no rules engine, no server support.
+
+| IMAP folder | is | on this mailbox |
+|---|---|---|
+| `INBOX` | `tag:inbox and tag:screened` — **the only thing that notifies** | 126 |
+| `HEY/Screener` | `tag:inbox and tag:unread and not tag:screened` | 219 |
+| `HEY/Feed` | `tag:thefeed` | 0 |
+| `HEY/PaperTrail` | `tag:/^ledger\//` | 0 |
+| `HEY/ReplyLater` | `tag:replylater` | 0 |
+| `HEY/SetAside` | `tag:setaside` | 0 |
+| `HEY/Bubbled` | `tag:bubble` — away until due; invisible is the feature | 1 |
+| `Archive` | everything else — the read backlog, muted threads, screened-out | 1523 |
+
+Order is precedence: a message carries many tags and gets exactly one folder,
+so the first row that claims it wins. **Piles beat boxes**, which is where this
+parts company with HEY — there a Reply Later mail is still listed in the Imbox,
+here it cannot be. Leaving it in INBOX instead would make `HEY/ReplyLater`
+permanently empty and silently undo every drag you made on the phone, which is
+worse than the divergence.
+
+The last row is what makes "INBOX = the Imbox" true rather than aspirational.
+Without it INBOX keeps every already-read stranger you were ever sent — 1454
+of them here against 126 of actual Imbox, so the phone's inbox would still be
+92% noise. Screened-out mail goes to `Archive` too, deliberately, and not to
+Junk or Trash: iCloud purges both after 30 days and mbsync would then delete
+the local copy. This setup *tags* mail `deleted`; it does not unlink it.
+
+**Two-way.** Drag a mail into `HEY/ReplyLater` on the phone and it comes back
+tagged `replylater`; swipe it to Junk and it comes back `spam deleted`. Drag
+one into `HEY/Bubbled` and it gets a 24-hour due date written into `bubble.db`,
+because `+bubble` with nothing to bring it back is mail that disappears
+forever. Nothing in the reverse direction ever touches `unread` — read state is
+iCloud's truth and rides the maildir flags.
+
+The rule that stops the two directions fighting, since both want to be
+authoritative:
+
+> A message whose **folder** changed since the last run wins for **tags**.
+> A message whose folder did not change is governed by its **tags**.
+
+An external move is read as an instruction and converted to tags *first*; only
+then does the tag map place everything else. So the two passes never disagree
+within a run. The state that makes this answerable is one line per message in
+`folder-state.tsv` — `id:… <folder>`, as of the end of the last run. A message
+it has never seen counts as unchanged, which is what makes the first run a pure
+forward pass instead of retagging the mailbox from its folder layout.
+
+### Switching a box on
+
+Nothing moves until a box is named in `foldersync.db`. Empty list, and the
+whole thing reads the mailbox, writes its state and moves not one byte — which
+is the state it ships in, because a bug here rewrites UIDs on 1900 messages in
+somebody's real iCloud account.
+
+`H , f` shows the map and the exact count each box would move. Add a line,
+sync, done. `INBOX` is always live and needs no line: mail leaving a box has to
+have somewhere to come home to.
+
+### What actually happens on the wire
+
+mbsync has no cross-folder MOVE and never has (isync 1.5.1). A local move is an
+**append to the destination plus an expunge from the source**, and the message
+gets a new UID on the server. That is not a workaround — it is the documented
+interface, mbsync(1) RECOMMENDATIONS: *"it is important that the MUA renames
+files when moving them between Maildir folders […] stripping the `,U=xxx` infix
+is sufficient."* So that is exactly what the bridge does, keeping the `:2,S`
+info suffix, which is why read state survives.
+
+Both failure modes self-heal, which is what makes this safe to run against a
+mailbox in daily use: a failed **append** left no far UID, so mbsync retries it
+every sync and the local copy is untouched; a failed **expunge** leaves the
+message in two folders for one sync window and the sync state expunges it next
+run. A message found in two tracked folders at once is skipped rather than
+guessed at, or a Bubble Up whose expunge failed would be un-bubbled by the very
+sync trying to file it.
+
+Verified on this mailbox, one box at a time: `HEY/Bubbled` migrated with tags,
+read state and `attachment` intact, iCloud created the folder from `Create
+Both`, the message left the server's INBOX and a second full sync did not pull
+it back.
+
+### What this does not fix
+
+**The first buzz.** iCloud delivers to INBOX and pushes to the phone before
+anything here has seen the message; the move follows a few seconds later. So a
+stranger can still raise one banner, and then vanish from the inbox. Everything
+downstream of that first second — the badge, the inbox list, every later
+glance — is the Imbox. And when the machine is asleep nothing moves at all
+until it wakes.
+
+**Screening in is loud.** `H i` retags every message that sender ever sent, and
+the unread ones then move *into* INBOX — which the phone reports as new mail,
+because it is. Screening in a prolific sender is a burst of notifications.
+
+**A drag is not a standing decision.** Moving a Screener message to INBOX on
+the phone screens that *message* in; it does not write the sender to
+`screened.db`, so their next mail is still screened. That is deliberate — a
+drag is a smaller claim than a rule about a person — but it means the Screener
+is still worked properly from Emacs.
+
+---
+
 ## Architecture
 
 ```
 iCloud IMAP ──IDLE──> goimapnotify ──> bin/mail-sync ──> mbsync ──> ~/Mail/icloud
                                                             │
                                                       notmuch new
-                                                            └── post-new hook:
-                                                                folder fixups, Speakeasy,
-                                                                sender routing, bundling,
-                                                                Bubble Up · recycling ·
-                                                                mute sweeps, away replies,
-                                                                bar counts, Emacs refresh,
-                                                                notifications
+                                                            │   └── post-new hook:
+                                                            │       folder fixups, Speakeasy,
+                                                            │       sender routing, bundling,
+                                                            │       Bubble Up · recycling ·
+                                                            │       mute sweeps, away replies,
+                                                            │       bar counts, Emacs refresh,
+                                                            │       notifications
+                                                     hey-folder-sync
+                                                            │       folder→tag, then tag→folder:
+                                                            │       the boxes, as IMAP folders
+                                                     notmuch new     (reindex the moved files)
+                                                            │
+                                                          mbsync     (push, only if it moved any)
 ```
 
 **Division of labour** — Emacs writes *decisions* (a line in a `.db`) and
@@ -350,7 +471,9 @@ arrives later. Neither re-implements the other.
 | `~/.msmtprc` | send (`tls_trust_file system`, never a hardcoded path) |
 | `~/.config/imapnotify/icloud.yaml` | IDLE watcher |
 | `~/.dotfiles/bin/mail-sync` | the one "get mail now" entry point, flock-serialised |
+| `~/.dotfiles/bin/hey-folder-sync` | the tag ↔ folder bridge — the phone's whole view |
 | `~/.local/share/hey-mail/` | every decision below — **never** committed anywhere |
+| `~/.local/state/hey-mail/` | logs, and `folder-state.tsv` (derived; safe to delete) |
 
 ### The decision files
 
@@ -365,6 +488,7 @@ arrives later. Neither re-implements the other.
 | `bundle.db` | one address per line | contact page `B` |
 | `subjects.db` | `<thread-id> <your subject>` | `H S` |
 | `workflows.db` | `<name> <stage>,<stage>,…` | `H w` |
+| `foldersync.db` | one IMAP folder per line | you, one box at a time (`H , f`) |
 | `speakeasy` `nametag` `away` | one value each | `H ,` |
 | `away-replied.db` | one address per line | the hook |
 | `notes.org` `clips.org` `snippets.org` | org | `H n` `H x` `C-c S` |
@@ -426,8 +550,11 @@ of · counts in the system bar · $0 instead of $99/yr.
 
 ## Where HEY still wins
 
-**Mobile** — no Emacs on your phone. Read/unread already syncs both ways;
-making the boxes visible there needs the tag→IMAP-folder mapping (Phase 4).
-**Big files** — theirs are a link anyone on the internet can fetch; ours are a
-link anyone on the LAN can fetch. **Calendar and Journal** — a separate
-project (org-agenda + CalDAV).
+**Mobile** — no Emacs on your phone. The boxes are there now, as IMAP folders,
+and INBOX means the Imbox (see [The phone](#the-phone)); read/unread and the
+folders both sync two ways. What is missing is the *acting*: on the phone you
+can drag a mail into a box, but you cannot screen a sender, and a stranger can
+still raise one notification in the second before the move lands. **Big files**
+— theirs are a link anyone on the internet can fetch; ours are a link anyone on
+the LAN can fetch. **Calendar and Journal** — a separate project (org-agenda +
+CalDAV).

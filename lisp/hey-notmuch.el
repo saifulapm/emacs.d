@@ -771,6 +771,68 @@ arrival — so this is for impatience and for proving the pipe works."
                    (progn (notmuch-refresh-all-buffers) (message "Mail synced"))
                  (message "Mail sync: %s" (string-trim event))))))
 
+;; ─────────────────── phone parity: the folder map ───────────────────
+;; A box here is a notmuch tag, and IMAP cannot see tags — so on the iPhone
+;; there are no boxes and every stranger lands in one INBOX.  `bin/hey-folder-
+;; sync' in the dotfiles repo is the bridge: it moves everything that is not
+;; screened-in Imbox mail OUT of INBOX into a HEY/* folder, which is what makes
+;; the Screener's promise hold on a device that only notifies for INBOX.
+;;
+;; None of that logic lives here, deliberately, and it is the same division of
+;; labour as everywhere else in this setup: Emacs writes DECISIONS, the shell
+;; side APPLIES them to files.  The bridge has to run without Emacs (it is
+;; called from mail-sync, which is called from a systemd unit and from an IDLE
+;; watcher), so re-implementing the map in elisp would give two authorities on
+;; where a message belongs and one of them would eventually be wrong.
+;;
+;; What this command is for is the one thing Emacs is better at: reading the
+;; report before you switch a box on.  Boxes are enabled one line at a time in
+;; `foldersync.db', each one migrating that box's mail on the next sync, and
+;; `e' below opens that file.
+(defcustom hey-notmuch-folder-sync-command "hey-folder-sync"
+  "Program that maps notmuch tags onto IMAP folders for the phone.
+Found on `exec-path'; lives in the dotfiles repo next to `mail-sync'."
+  :type 'string
+  :group 'hey-notmuch)
+
+(defvar hey-notmuch-folder-map-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "e") #'hey-notmuch-folder-map-edit)
+    (define-key map (kbd "g") #'hey-notmuch-folder-map)
+    map)
+  "Keymap for the folder-map report.")
+
+(define-derived-mode hey-notmuch-folder-map-mode special-mode "HEY folders"
+  "Report of the tag → IMAP-folder map and what the next sync would move.")
+
+(defun hey-notmuch-folder-map-edit ()
+  "Open the list of boxes that exist as IMAP folders on the phone."
+  (interactive)
+  (find-file (hey-notmuch--db-path "foldersync.db")))
+
+(defun hey-notmuch-folder-map ()
+  "Show the tag → IMAP-folder map, and what a sync would move, per box.
+
+Read-only: this runs the bridge's dry run, which moves nothing.  A box
+only migrates once its folder is listed in `foldersync.db' (`e' here),
+and the TO MOVE column is exactly how many messages that would be."
+  (interactive)
+  (let ((buffer (get-buffer-create "*HEY folders*")))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        ;; Synchronous, unlike `hey-notmuch-sync': measured at 356ms on this
+        ;; mailbox (1968 messages, ~40 `notmuch count' invocations), which is
+        ;; short enough not to be worth the sentinel — and unlike a sync there
+        ;; is nothing useful to do in the buffer until the numbers are in.
+        (unless (eq 0 (call-process hey-notmuch-folder-sync-command
+                                    nil t nil "--dry-run"))
+          (insert "\n(hey-folder-sync failed — see the output above)\n"))
+        (insert "\n  e  edit the enabled-box list      g  refresh\n"))
+      (goto-char (point-min))
+      (hey-notmuch-folder-map-mode))
+    (pop-to-buffer buffer)))
+
 ;; ───────────────────────────── keys ─────────────────────────────────
 ;; Everything HEY-specific lives under `H', so notmuch's own single-key
 ;; bindings (a = archive, r/R = reply, f = forward, * = tag all) keep working
@@ -791,6 +853,7 @@ arrival — so this is for impatience and for proving the pipe works."
 (defvar hey-notmuch-settings-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "s") #'hey-notmuch-speakeasy)
+    (define-key map (kbd "f") #'hey-notmuch-folder-map)
     map)
   "Set-once HEY settings, bound under `H ,'.")
 
